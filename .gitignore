@@ -1,0 +1,7 @@
+sync.db*
+network-list-sync*
+*.exe
+sync.log*
+dist/
+coverage
+npm-creds.json

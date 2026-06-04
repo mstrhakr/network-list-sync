@@ -1,0 +1,13 @@
+services:
+  network-list-sync:
+    image: ghcr.io/mstrhakr/network-list-sync:main
+    container_name: network-list-sync
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PUID: "99"
+      PGID: "100"
+      UMASK: "022"
+    volumes:
+      - /mnt/user/appdata/network-list-sync:/data

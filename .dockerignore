@@ -1,0 +1,13 @@
+.git
+.github
+tools
+docs
+
+sync.db
+sync.log
+
+*.md
+!README.md
+
+*.exe
+*.out
