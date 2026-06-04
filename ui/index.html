@@ -144,6 +144,8 @@
             box-shadow: var(--shadow-soft);
             overflow: hidden;
             transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+        }
+        .job-card.job-card-enter {
             animation: riseIn 280ms ease both;
         }
         .job-card:hover {
@@ -787,8 +789,8 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="hostnames">Hostnames / IPv4 / CIDR <small>(one per line, # for comments)</small></label>
-                        <textarea id="hostnames" rows="8" required placeholder="example1.domain.com&#10;203.0.113.10&#10;198.51.100.0/24&#10;# This is a comment"></textarea>
+                        <label for="hostnames">Hostnames / IPv4 / CIDR / External URL <small>(one per line, # for comments)</small></label>
+                        <textarea id="hostnames" rows="8" required placeholder="example1.domain.com&#10;203.0.113.10&#10;198.51.100.0/24&#10;https://www.cloudflare.com/ips-v4&#10;# This is a comment"></textarea>
                         <button type="button" class="btn btn-small btn-secondary" onclick="previewResolve()" style="margin-top:0.4rem">Preview DNS Resolution</button>
                         <div id="resolvePreview" class="resolve-preview hidden"></div>
                     </div>

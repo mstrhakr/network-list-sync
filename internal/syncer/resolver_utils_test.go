@@ -53,6 +53,16 @@ func TestResolverHelpers(t *testing.T) {
 		t.Fatalf("normalizeDNSName = %q", got)
 	}
 
+	if got, ok, err := parseExternalListURL("https://example.com/list.txt"); err != nil || !ok || got != "https://example.com/list.txt" {
+		t.Fatalf("parseExternalListURL valid = (%q, %v, %v)", got, ok, err)
+	}
+	if _, ok, err := parseExternalListURL("file:///tmp/list.txt"); !ok || err == nil {
+		t.Fatalf("parseExternalListURL should reject unsupported scheme")
+	}
+	if _, ok, err := parseExternalListURL("example.com"); ok || err != nil {
+		t.Fatalf("parseExternalListURL plain hostname should not be URL-like")
+	}
+
 	if got := bytesCompare([]byte{1, 2}, []byte{1, 2, 3}); got != -1 {
 		t.Fatalf("bytesCompare short<long = %d", got)
 	}

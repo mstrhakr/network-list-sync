@@ -21,6 +21,7 @@ It supports multiple endpoint providers in one deployment, currently:
 - Cron scheduling with manual run support
 - DNS preview before saving a job
 - Hostname plus literal IPv4 and IPv4 CIDR inputs
+- External URL list inputs (HTTP/HTTPS), for example Cloudflare IP ranges
 - Run history and per-run details
 - Single binary with embedded UI and SQLite persistence
 
@@ -133,7 +134,7 @@ Example:
 3. Test connection and save.
 4. Create a new sync job.
 5. Choose primary endpoint and primary target list.
-6. Add hostnames, IPv4, or CIDR entries (one per line).
+6. Add hostnames, IPv4, CIDR, or external URL list entries (one per line).
 7. Optionally add additional endpoint/list targets.
 8. Save and run the job.
 9. Review logs and target list state.
@@ -147,6 +148,9 @@ synthetics.grafana.net
 # Static office egress
 203.0.113.10
 203.0.113.0/24
+
+# External source list
+https://www.cloudflare.com/ips-v4
 ```
 
 ## Operational Tips

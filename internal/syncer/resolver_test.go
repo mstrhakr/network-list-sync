@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -62,6 +64,42 @@ func TestMultiResolverResolveIPv4_UsesAuthoritativeAndPublicResolvers(t *testing
 	want := []string{"198.51.100.10", "198.51.100.11"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ResolveIPv4 = %v, want %v", got, want)
+	}
+}
+
+func TestResolveHostnames_ExpandsExternalListURL(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("# cloudflare list\n173.245.48.0/20\n103.21.244.0/22\n"))
+	}))
+	defer ts.Close()
+
+	input := ts.URL + "\n203.0.113.10\n"
+	hostIPs, err := ResolveHostnames(input, nil)
+	if err != nil {
+		t.Fatalf("ResolveHostnames returned error: %v", err)
+	}
+
+	if got := hostIPs["203.0.113.10"]; got != "203.0.113.10" {
+		t.Fatalf("literal IPv4 source = %q, want %q", got, "203.0.113.10")
+	}
+	if got := hostIPs["173.245.48.0/20"]; got != ts.URL {
+		t.Fatalf("external CIDR source = %q, want %q", got, ts.URL)
+	}
+	if got := hostIPs["103.21.244.0/22"]; got != ts.URL {
+		t.Fatalf("external CIDR source = %q, want %q", got, ts.URL)
+	}
+
+	gotIPs := SortedIPs(hostIPs)
+	wantIPs := []string{"103.21.244.0/22", "173.245.48.0/20", "203.0.113.10"}
+	if !reflect.DeepEqual(gotIPs, wantIPs) {
+		t.Fatalf("SortedIPs = %v, want %v", gotIPs, wantIPs)
+	}
+}
+
+func TestResolveHostnames_RejectsUnsupportedURLScheme(t *testing.T) {
+	_, err := ResolveHostnames("file:///tmp/list.txt", nil)
+	if err == nil {
+		t.Fatal("expected error for unsupported external list URL scheme")
 	}
 }
 

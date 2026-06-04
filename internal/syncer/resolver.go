@@ -3,7 +3,10 @@ package syncer
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +17,9 @@ import (
 const (
 	defaultDNSQueryTimeout = 5 * time.Second
 	maxCNAMEFollowDepth    = 8
+	maxExternalListDepth   = 3
+	maxExternalListBytes   = 2 * 1024 * 1024
+	externalListTimeout    = 10 * time.Second
 )
 
 var defaultPublicDNSServers = []string{
@@ -55,42 +61,77 @@ func newMultiResolverWithServers(servers []string) (*multiResolver, error) {
 func ResolveHostnames(hostnamesText string, servers []string) (map[string]string, error) {
 	result := make(map[string]string)
 	var resolver *multiResolver
-	lines := strings.Split(hostnamesText, "\n")
 	var errors []string
+	externalCache := make(map[string][]string)
 
-	for _, rawLine := range lines {
+	var resolveLine func(rawLine, source string, depth int)
+	resolveLine = func(rawLine, source string, depth int) {
 		line := normalizeHostnameLine(rawLine)
 		if line == "" {
-			continue
+			return
 		}
 
+		if listURL, isURLLike, err := parseExternalListURL(line); isURLLike {
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", line, err))
+				return
+			}
+			if depth >= maxExternalListDepth {
+				errors = append(errors, fmt.Sprintf("%s: external list nesting exceeds %d levels", listURL, maxExternalListDepth))
+				return
+			}
+
+			entries, ok := externalCache[listURL]
+			if !ok {
+				fetchedEntries, fetchErr := fetchExternalListEntries(listURL)
+				if fetchErr != nil {
+					errors = append(errors, fmt.Sprintf("%s: %v", listURL, fetchErr))
+					return
+				}
+				entries = fetchedEntries
+				externalCache[listURL] = entries
+			}
+
+			for _, entry := range entries {
+				resolveLine(entry, listURL, depth+1)
+			}
+			return
+		}
+
+		resolvedSource := sourceLabelForResolvedEntry(source, line)
+
 		if ip, ok := normalizeIPv4Literal(line); ok {
-			addResolvedSource(result, ip, line)
-			continue
+			addResolvedSource(result, ip, resolvedSource)
+			return
 		}
 
 		if cidr, ok := normalizeIPv4CIDR(line); ok {
-			addResolvedSource(result, cidr, line)
-			continue
+			addResolvedSource(result, cidr, resolvedSource)
+			return
 		}
 
 		if resolver == nil {
 			var err error
 			resolver, err = newMultiResolverWithServers(servers)
 			if err != nil {
-				return nil, err
+				errors = append(errors, err.Error())
+				return
 			}
 		}
 
 		ips, err := resolver.ResolveIPv4(line)
 		if err != nil {
 			errors = append(errors, err.Error())
-			continue
+			return
 		}
 
 		for _, ip := range ips {
-			addResolvedSource(result, ip, line)
+			addResolvedSource(result, ip, resolvedSource)
 		}
+	}
+
+	for _, rawLine := range strings.Split(hostnamesText, "\n") {
+		resolveLine(rawLine, "", 0)
 	}
 
 	if len(result) == 0 {
@@ -314,6 +355,74 @@ func normalizeHostnameLine(line string) string {
 		line = strings.TrimSpace(line[:idx])
 	}
 	return line
+}
+
+func sourceLabelForResolvedEntry(source, line string) string {
+	if source == "" {
+		return line
+	}
+	if source == line {
+		return line
+	}
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		return source
+	}
+	return source + " => " + line
+}
+
+func parseExternalListURL(value string) (string, bool, error) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.Contains(trimmed, "://") {
+		return "", false, nil
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", true, fmt.Errorf("invalid list URL")
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", true, fmt.Errorf("invalid list URL")
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", true, fmt.Errorf("unsupported URL scheme %q: use http or https", parsed.Scheme)
+	}
+	if parsed.User != nil {
+		return "", true, fmt.Errorf("URL user info is not supported")
+	}
+
+	parsed.Fragment = ""
+	return parsed.String(), true, nil
+}
+
+func fetchExternalListEntries(listURL string) ([]string, error) {
+	client := &http.Client{Timeout: externalListTimeout}
+	req, err := http.NewRequest(http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch list: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("fetch list: unexpected HTTP status %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxExternalListBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read list body: %w", err)
+	}
+	if len(body) > maxExternalListBytes {
+		return nil, fmt.Errorf("external list exceeds %d bytes", maxExternalListBytes)
+	}
+
+	text := strings.ReplaceAll(string(body), "\r\n", "\n")
+	return strings.Split(text, "\n"), nil
 }
 
 func normalizeIPv4Literal(value string) (string, bool) {
