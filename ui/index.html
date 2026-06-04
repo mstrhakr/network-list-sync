@@ -1035,6 +1035,8 @@
     };
     let additionalTargetRowSeq = 0;
     let activeJobActionId = null;
+    let jobsCacheSignature = '';
+    let jobsHasRendered = false;
 
     function applyTheme(dark) {
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -1442,8 +1444,15 @@
         try {
             const resp = await fetch(API + '/jobs');
             if (!resp.ok) throw new Error('Failed to load jobs');
-            jobs = await resp.json();
-            renderJobs();
+            const nextJobs = await resp.json();
+            const nextSignature = JSON.stringify(nextJobs);
+            jobs = nextJobs;
+
+            if (nextSignature !== jobsCacheSignature) {
+                renderJobs(!jobsHasRendered);
+                jobsHasRendered = true;
+                jobsCacheSignature = nextSignature;
+            }
         } catch (err) {
             console.error('Load jobs error:', err);
         }
@@ -1648,9 +1657,10 @@
         }
     }
 
-    function renderJobs() {
+    function renderJobs(animateCards) {
         const list = document.getElementById('jobList');
         const empty = document.getElementById('emptyState');
+        const cardClass = animateCards ? 'job-card job-card-enter' : 'job-card';
 
         if (jobs.length === 0) {
             list.classList.add('hidden');
@@ -1676,7 +1686,7 @@
             const targets = Array.isArray(job.targets) ? job.targets : [];
             const endpointCount = targets.length > 0 ? targets.length : 1;
 
-            return '<div class="job-card" oncontextmenu="return openJobActionsMenu(event, ' + job.id + ')">' +
+            return '<div class="' + cardClass + '" oncontextmenu="return openJobActionsMenu(event, ' + job.id + ')">' +
                 '<div class="job-header">' +
                     '<h3>' + escapeHtml(job.name) + '</h3>' +
                     '<span class="badge ' + scheduleStatusClass + '">' +
