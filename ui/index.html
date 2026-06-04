@@ -110,9 +110,11 @@
             gap: 0.25rem;
         }
         .header-logo {
-            width: 30px;
-            height: 30px;
+            width: auto;
+            height: 56px;
+            max-width: 220px;
             object-fit: contain;
+            display: block;
         }
         header h1 {
             font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
@@ -560,6 +562,10 @@
             header h1 {
                 max-width: 45vw;
                 font-size: 0.96rem;
+            }
+            .header-logo {
+                height: 28px;
+                max-width: 120px;
             }
             .btn.header-mobile-menu-btn {
                 display: inline-flex;
