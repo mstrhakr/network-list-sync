@@ -1,4 +1,4 @@
-# UniFi Network List Sync
+# Network List Sync
 
 [![CI](https://img.shields.io/github/actions/workflow/status/mstrhakr/network-list-sync/ci.yml?branch=main&label=ci)](https://github.com/mstrhakr/network-list-sync/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/mstrhakr/network-list-sync?display_name=tag)](https://github.com/mstrhakr/network-list-sync/releases/latest)
@@ -6,175 +6,139 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mstrhakr/network-list-sync)](https://github.com/mstrhakr/network-list-sync/blob/main/go.mod)
 [![License](https://img.shields.io/github/license/mstrhakr/network-list-sync)](LICENSE)
 
-Automatically resolves DNS hostnames to IPs and pushes them into UniFi controller firewall groups. Replaces the manual process of maintaining IP allow-lists.
+Network List Sync resolves hostnames to IPs and keeps provider-managed target lists in sync.
 
-**Features:**
+It supports multiple endpoint providers in one deployment, currently:
 
-- **Web UI** for creating and managing sync jobs
-- **Cron scheduling** to keep firewall groups automatically updated
-- **Multi-resolver DNS lookups** across authoritative DNS plus Cloudflare, Google, Quad9, and OpenDNS
-- **Literal IPv4 and IPv4 CIDR support** in the input list for mixed hostname and direct-entry workflows
-- **DNS preview** to test hostname resolution before syncing
-- **Run history** with detailed diffs of every sync
-- **Single binary** with embedded web interface — no external dependencies
-- **SQLite** storage for jobs and logs
+- UniFi
+- Nginx Proxy Manager (NPM)
+
+## Features
+
+- Web UI for endpoint, DNS server, and sync job management
+- Multi-target jobs (one job can update multiple endpoint/list pairs)
+- Provider-aware endpoint model (UniFi and NPM side by side)
+- Cron scheduling with manual run support
+- DNS preview before saving a job
+- Hostname plus literal IPv4 and IPv4 CIDR inputs
+- Run history and per-run details
+- Single binary with embedded UI and SQLite persistence
 
 ## Why Use It
 
-Use this when you maintain UniFi firewall/address groups that depend on hostnames whose IPs change over time.
+Use this when upstream systems publish hostnames or changing IP ranges and you need list-based access control to stay current automatically.
 
-Typical examples:
+Common examples:
 
-- Monitoring providers with rotating probe IPs
-- Third-party integrations that publish hostnames instead of fixed IPs
-- Mixed allow-lists where some entries are hostnames and others are static CIDRs
-
-Without automation, these groups drift and access breaks. This tool keeps the group aligned with current DNS results on a schedule.
+- Probe/monitoring provider IPs that rotate over time
+- Third-party integrations with DNS-based endpoints
+- Mixed static and dynamic allow-lists
 
 ## How It Works
 
-1. You create a sync job in the web UI.
-2. The job stores UniFi credentials, target group ID, and hostname/CIDR inputs.
-3. On manual run or schedule, the app resolves hostnames using multiple DNS resolvers.
-4. It computes the desired final list and updates the UniFi firewall group.
-5. It stores run history so you can review diffs and failures.
+1. Add one or more endpoints in the UI.
+2. Create a sync job with hostnames/IP inputs.
+3. Assign a primary target list and optional additional targets.
+4. Run manually or on schedule.
+5. The service resolves DNS, computes diffs, updates provider lists, and stores run history.
 
 ## Before You Start
 
-1. A reachable UniFi Network Controller URL.
-2. A UniFi API key with permission to update firewall groups.
-3. The target Site name (usually `default`).
-4. The firewall/address group ID you want to keep in sync.
-5. A host machine where Docker can keep a persistent `/data` volume.
+1. Reachable endpoint URLs for each provider.
+2. Credentials/secrets with permission to update target lists.
+3. Provider-specific identity value if required:
+   - UniFi: site (usually default)
+   - NPM: identity/account value used by your environment
+4. Existing target list IDs in each provider.
+5. Persistent storage for the data directory.
 
-## Quick Start (Docker Preferred)
+## Quick Start
 
-### Run Latest Development Build
+### Docker (Recommended)
 
-```bash
-docker run --rm -p 8080:8080 \
-   -v unifi-sync-data:/data \
-   ghcr.io/mstrhakr/network-list-sync:main
-```
-
-Open [http://localhost:8080](http://localhost:8080) in your browser.
-
-### Run A Stable Release
+Run latest build from main:
 
 ```bash
 docker run --rm -p 8080:8080 \
-   -v unifi-sync-data:/data \
-   ghcr.io/mstrhakr/network-list-sync:v0.1.0
+  -v network-list-sync-data:/data \
+  ghcr.io/mstrhakr/network-list-sync:main
 ```
 
-The image is published for `linux/amd64` and `linux/arm64`.
-
-### Image Tag Strategy
-
-- `main`: latest build from the `main` branch
-- `vMAJOR`: latest patch release in a major series
-- `vMAJOR.MINOR`: latest patch release in a minor series
-- `vMAJOR.MINOR.PATCH`: exact immutable release
-- `sha-<commit>`: commit-specific image
-
-### Data Persistence
-
-The container defaults to:
-
-- `-addr :8080`
-- `-db /data/sync.db`
-- `-log-file /data/sync.log`
-
-Use a bind mount or named volume for `/data` so DB and logs persist across upgrades.
-
-### Unraid Permissions (Optional)
-
-For Unraid-style deployments, you can run the process as a specific user/group
-and set file mode defaults with environment variables:
-
-- `PUID`: runtime user ID (for example `99`)
-- `PGID`: runtime group ID (for example `100`)
-- `UMASK`: process umask (for example `002`)
-
-Example:
+Run a stable release:
 
 ```bash
 docker run --rm -p 8080:8080 \
-   -e PUID=99 \
-   -e PGID=100 \
-   -e UMASK=002 \
-   -v unifi-sync-data:/data \
-   ghcr.io/mstrhakr/network-list-sync:main
+  -v network-list-sync-data:/data \
+  ghcr.io/mstrhakr/network-list-sync:v0.1.0
 ```
 
-### Optional: Build The Image Locally
+Open http://localhost:8080.
 
-```bash
-docker build -t network-list-sync:dev .
-```
+Published platforms: linux/amd64 and linux/arm64.
 
-### Optional: Docker Compose Example
+### Docker Compose (Example)
 
-Full example file: `docs/docker-compose.unraid.yml`
+See [docs/docker-compose.unraid.yml](docs/docker-compose.unraid.yml).
 
 ```yaml
 services:
-   network-list-sync:
-      image: ghcr.io/mstrhakr/network-list-sync:main
-      container_name: network-list-sync
-      restart: unless-stopped
-      ports:
-         - "8080:8080"
-      environment:
-         PUID: "99"
-         PGID: "100"
-         UMASK: "022"
-      volumes:
-         - /mnt/user/appdata/network-list-sync:/data
+  network-list-sync:
+    image: ghcr.io/mstrhakr/network-list-sync:main
+    container_name: network-list-sync
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PUID: "99"
+      PGID: "100"
+      UMASK: "022"
+    volumes:
+      - /mnt/user/appdata/network-list-sync:/data
 ```
 
-### Optional: Run From Binary
+### Run From Source
+
+```bash
+go run . -addr :8080
+```
+
+### Build Binary
 
 ```bash
 go build -o network-list-sync .
 ./network-list-sync
 ```
 
-For maintainer and contributor workflows (local dev, CI, and release process), see [docs/development.md](docs/development.md).
+## Runtime Flags
 
-### Options
+| Flag | Default | Description |
+|------|---------|-------------|
+| -addr | :8080 | HTTP listen address |
+| -db | sync.db | SQLite database path |
+| -debug | false | Enable debug logs |
+| -verbose | false | Enable verbose logs |
+| -log-file | sync.log | Log file path (empty disables file logging) |
+| -version | false | Print build version metadata and exit |
 
-| Flag       | Default   | Description                                |
-|------------|-----------|--------------------------------------------|
-| `-addr`    | `:8080`   | HTTP listen address                        |
-| `-db`      | `sync.db` | SQLite database path                       |
-| `-debug`   | `false`   | Enable debug logging                       |
-| `-verbose` | `false`   | Enable verbose logging                     |
-| `-log-file`| `sync.log`| Log file path (`""` disables file logging) |
-| `-version` | `false`   | Print build version metadata and exit      |
+Example:
 
 ```bash
 ./network-list-sync -addr :9090 -db /var/lib/sync/data.db -log-file ./sync.log
 ```
 
-## Usage
+## UI Setup Walkthrough
 
-### First-Time Setup Walkthrough
+1. Open the app and go to Endpoints.
+2. Add at least one endpoint with provider, URL, identity/site, and secret.
+3. Test connection and save.
+4. Create a new sync job.
+5. Choose primary endpoint and primary target list.
+6. Add hostnames, IPv4, or CIDR entries (one per line).
+7. Optionally add additional endpoint/list targets.
+8. Save and run the job.
+9. Review logs and target list state.
 
-1. Start the container and open the UI at [http://localhost:8080](http://localhost:8080).
-2. Click **+ New Sync Job**.
-3. Enter a clear job name, for example `grafana-probes-prod`.
-4. Set **Controller URL** to your UniFi endpoint, for example `https://192.168.1.4:8443`.
-5. Set **API Key** from UniFi OS (`Settings -> System -> Advanced -> API Keys`).
-6. Set **Site** to your UniFi site name (usually `default`).
-7. Set **Firewall Group ID** by opening the target group in UniFi and copying the hex ID from the URL.
-8. In **Hostnames**, add one entry per line.
-9. Use comments with `#` for documentation.
-10. Add a schedule such as `0 */6 * * *` for every 6 hours, or leave blank for manual runs.
-11. Click **Save**.
-12. Click **Run Now** to verify connectivity and output.
-
-Example host list:
+Example input:
 
 ```text
 # Grafana synthetic probes
@@ -185,57 +149,72 @@ synthetics.grafana.net
 203.0.113.0/24
 ```
 
-### What To Check After First Run
+## Operational Tips
 
-1. The run status is successful in job history.
-2. The log shows resolved records and applied changes.
-3. The target UniFi group now contains the expected entries.
-4. A second run without DNS changes produces little or no diff.
-
-### Recommended Operations
-
-1. Start with manual runs while validating job configuration.
-2. Enable schedule only after one or two clean manual runs.
-3. Use stable tags (`vMAJOR.MINOR.PATCH`) in production.
-4. Use `main` for testing new behavior.
-5. Keep `/data` persisted so jobs and history survive container updates.
-
-### Common Failure Causes
-
-1. Invalid controller URL or TLS trust issues.
-2. API key missing required permissions.
-3. Wrong site or firewall group ID.
-4. DNS resolver/network restrictions from the container host.
-5. Container started without persistent `/data` volume.
+1. Validate jobs with manual runs before enabling schedule.
+2. Keep data persisted under /data across container upgrades.
+3. Use exact release tags in production.
+4. Keep endpoint credentials scoped to minimum required permissions.
 
 ## API Endpoints
 
-| Method | Path                    | Description                     |
-|--------|-------------------------|---------------------------------|
-| GET    | `/api/jobs`             | List all sync jobs              |
-| POST   | `/api/jobs`             | Create a new sync job           |
-| GET    | `/api/jobs/{id}`        | Get a specific job              |
-| PUT    | `/api/jobs/{id}`        | Update a job                    |
-| DELETE | `/api/jobs/{id}`        | Delete a job and its history    |
-| POST   | `/api/jobs/{id}/run`    | Trigger a sync immediately      |
-| GET    | `/api/jobs/{id}/logs`   | Get run history for a job       |
-| POST   | `/api/resolve`          | Preview DNS resolution          |
+### Endpoints/Instances
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/controllers | List endpoints |
+| POST | /api/controllers | Create endpoint |
+| GET | /api/controllers/{id} | Get endpoint |
+| PUT | /api/controllers/{id} | Update endpoint |
+| DELETE | /api/controllers/{id} | Delete endpoint |
+| GET | /api/controllers/{id}/network-lists | List provider target lists |
+| POST | /api/controllers/test | Test endpoint connection |
+
+Alias paths are also available under /api/instances, including:
+
+- /api/instances/{id}/access-lists
+- /api/instances/test
+
+### Jobs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/jobs | List jobs |
+| POST | /api/jobs | Create job |
+| GET | /api/jobs/{id} | Get job |
+| PUT | /api/jobs/{id} | Update job |
+| DELETE | /api/jobs/{id} | Delete job and history |
+| GET | /api/jobs/{id}/network-list | Get primary or selected target list state |
+| GET | /api/jobs/{id}/access-list | Alias for network-list endpoint |
+| POST | /api/jobs/{id}/run | Trigger immediate run |
+| GET | /api/jobs/{id}/logs | Get job run history |
+
+### DNS And Health
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/resolve | Preview DNS resolution |
+| GET | /api/health | Health check |
+| GET | /api/dns-servers | List DNS servers |
+| POST | /api/dns-servers | Create DNS server |
+| GET | /api/dns-servers/{id} | Get DNS server |
+| PUT | /api/dns-servers/{id} | Update DNS server |
+| DELETE | /api/dns-servers/{id} | Delete DNS server |
 
 ## Cron Schedule Examples
 
-| Expression      | Meaning          |
-|-----------------|------------------|
-| `*/30 * * * *`  | Every 30 minutes |
-| `0 */6 * * *`   | Every 6 hours    |
-| `0 0 * * *`     | Daily at midnight|
-| `0 0 * * 1`     | Every Monday     |
+| Expression | Meaning |
+|------------|---------|
+| */30 * * * * | Every 30 minutes |
+| 0 */6 * * * | Every 6 hours |
+| 0 0 * * * | Daily at midnight |
+| 0 0 * * 1 | Every Monday |
 
-## UniFi API Schema Reference
+## References
 
-- Local copy: `docs/reference/unifi-network-10.1.85.json`
-- Source: `https://github.com/beezly/unifi-apis/raw/refs/heads/main/unifi-network/10.1.85.json`
-
-This file is treated as the authoritative schema reference for endpoint paths and response payload shapes.
+- Maintainer guide: [docs/development.md](docs/development.md)
+- Migration notes: [docs/generic-migration-plan.md](docs/generic-migration-plan.md)
+- UniFi schema reference: [docs/reference/unifi-network-10.1.85.json](docs/reference/unifi-network-10.1.85.json)
 
 ## License
 
