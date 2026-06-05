@@ -699,9 +699,9 @@ async function showLogs(id) {
     if (!limitWrap) {
         limitWrap = document.createElement('div');
         limitWrap.id = 'logLimitWrap';
-        limitWrap.style = 'margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;';
+        limitWrap.className = 'log-limit-bar';
         limitWrap.innerHTML = '<label for="logLimit">Show last</label>' +
-            '<select id="logLimit" style="font-size:0.9rem;padding:0.2rem 0.5rem;">' +
+            '<select id="logLimit" class="inline-select">' +
             [50, 100, 150, 200].map(function(n) { return '<option value="' + n + '">' + n + '</option>'; }).join('') + '</select> logs';
         content.parentElement.insertBefore(limitWrap, content);
         document.getElementById('logLimit').addEventListener('change', function() {

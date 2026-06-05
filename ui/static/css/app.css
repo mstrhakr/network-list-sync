@@ -450,6 +450,35 @@ form { padding: 1.5rem; }
     opacity: 0.65;
 }
 
+/* Inline select used outside a form-group (e.g. log limit bar) */
+.inline-select {
+    padding: 0.25rem 0.55rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-family: inherit;
+    color: var(--text);
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.inline-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18);
+}
+
+.log-limit-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
 .toggle-field {
     display: flex;
     justify-content: space-between;
@@ -972,6 +1001,16 @@ form { padding: 1.5rem; }
 
 [data-theme="dark"] .form-group input::placeholder,
 [data-theme="dark"] .form-group textarea::placeholder { color: var(--text-secondary); }
+
+[data-theme="dark"] .inline-select {
+    background: #111c29;
+    color: var(--text);
+    border-color: var(--border);
+}
+
+[data-theme="dark"] .inline-select:focus {
+    box-shadow: 0 0 0 3px rgba(44, 199, 183, 0.25);
+}
 
 [data-theme="dark"] .logs-table,
 [data-theme="dark"] .resolve-preview,
