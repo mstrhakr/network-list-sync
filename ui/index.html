@@ -1367,11 +1367,14 @@
     let jobsHasRendered = false;
     let jobsViewMode = localStorage.getItem('nls_jobs_view_mode') === 'table' ? 'table' : 'cards';
     let jobsTableCustomizer = null;
+    let networkListNameCache = Object.create(null);
+    let networkListsLoadedControllers = Object.create(null);
+    let networkListFetchPromises = Object.create(null);
 
     const JOB_COLUMN_DEFS = [
         { id: 'name', label: 'Name', sortKey: 'name', hideable: false, render: function(job) { return '<strong>' + escapeHtml(job.name) + '</strong>'; } },
         { id: 'primary_endpoint', label: 'Primary Endpoint', sortKey: 'controller_name', render: function(job) { return escapeHtml(job.controller_name || 'Unknown'); } },
-        { id: 'primary_list', label: 'Primary List', sortKey: 'network_list_id', render: function(job) { return '<span class="mono">' + escapeHtml(job.network_list_id || '-') + '</span>'; } },
+        { id: 'primary_list', label: 'Primary List', sortKey: 'primary_list_name', render: function(job) { return renderPrimaryListValue(job); } },
         { id: 'endpoints', label: 'Endpoints', sortKey: 'target_count', render: function(job) { var c = Array.isArray(job.targets) && job.targets.length > 0 ? job.targets.length : 1; return String(c); } },
         { id: 'schedule', label: 'Schedule', sortKey: 'schedule', render: function(job) { return scheduleDisplayHtml(job.schedule, !!job.enabled); } },
         { id: 'retention', label: 'IP Retention', sortKey: 'observed_ip_ttl_hours', render: function(job) { return job.observed_ip_ttl_hours > 0 ? escapeHtml(String(job.observed_ip_ttl_hours)) + 'h' : '<em>Disabled</em>'; } },
@@ -1382,14 +1385,82 @@
             return '<span class="' + cls + '">' + escapeHtml(r || '-') + '</span>';
         } },
         { id: 'actions', label: 'Actions', hideable: false, render: function(job) {
-            return '' +
-                '<button class="btn btn-small btn-primary" onclick="runJob(' + job.id + ')">&#9654; Run</button> ' +
-                '<button class="btn btn-small btn-secondary" onclick="editJob(' + job.id + ')">Edit</button> ' +
-                '<button class="btn btn-small btn-secondary" onclick="showNetworkList(' + job.id + ')">View</button> ' +
-                '<button class="btn btn-small btn-secondary" onclick="showLogs(' + job.id + ')">Logs</button> ' +
-                '<button class="btn btn-small btn-danger" onclick="deleteJob(' + job.id + ')">Delete</button>';
+            return '<button class="btn btn-small btn-secondary" type="button" onclick="openJobActionsMenuForButton(event, ' + job.id + ')">Actions</button>';
         } },
     ];
+
+    function networkListCacheKey(controllerId, listId) {
+        return String(controllerId || '') + '::' + String(listId || '');
+    }
+
+    function cacheNetworkListsForEndpoint(endpointId, lists) {
+        var controllerId = String(endpointId || '');
+        networkListsLoadedControllers[controllerId] = true;
+        (lists || []).forEach(function(list) {
+            if (!list || !list.id) return;
+            networkListNameCache[networkListCacheKey(controllerId, list.id)] = list.name || list.id;
+        });
+    }
+
+    function resolvePrimaryListName(job) {
+        if (!job || !job.controller_id || !job.network_list_id) return job && job.network_list_id ? job.network_list_id : '';
+        return networkListNameCache[networkListCacheKey(job.controller_id, job.network_list_id)] || job.network_list_id;
+    }
+
+    function renderPrimaryListValue(job) {
+        var value = job && job.primary_list_name ? job.primary_list_name : resolvePrimaryListName(job);
+        if (!value) return '-';
+        if (job && job.network_list_id && value !== job.network_list_id) {
+            return '<span title="' + escapeHtml(job.network_list_id) + '">' + escapeHtml(value) + '</span>';
+        }
+        return '<span class="mono">' + escapeHtml(value) + '</span>';
+    }
+
+    function decorateJobsWithPrimaryListNames(jobList) {
+        return (jobList || []).map(function(job) {
+            return Object.assign({}, job, {
+                primary_list_name: resolvePrimaryListName(job),
+            });
+        });
+    }
+
+    async function ensureControllerNetworkListsCached(controllerId) {
+        var cacheKey = String(controllerId || '');
+        if (!cacheKey) return false;
+        if (networkListsLoadedControllers[cacheKey]) return false;
+        if (networkListFetchPromises[cacheKey]) return networkListFetchPromises[cacheKey];
+
+        networkListFetchPromises[cacheKey] = fetchListsForEndpoint(controllerId)
+            .then(function() {
+                return true;
+            })
+            .catch(function(err) {
+                console.error('Load target lists error:', err);
+                return false;
+            })
+            .finally(function() {
+                delete networkListFetchPromises[cacheKey];
+            });
+
+        return networkListFetchPromises[cacheKey];
+    }
+
+    async function ensureJobPrimaryListNames(jobList) {
+        var controllerIds = [];
+        var seen = Object.create(null);
+
+        (jobList || []).forEach(function(job) {
+            var controllerId = String(job && job.controller_id ? job.controller_id : '');
+            if (!controllerId || !job.network_list_id || seen[controllerId] || networkListsLoadedControllers[controllerId]) return;
+            seen[controllerId] = true;
+            controllerIds.push(controllerId);
+        });
+
+        if (!controllerIds.length) return;
+        await Promise.all(controllerIds.map(function(controllerId) {
+            return ensureControllerNetworkListsCached(controllerId);
+        }));
+    }
 
     function applyTheme(dark) {
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -1654,6 +1725,7 @@
         if (!resp.ok) {
             throw new Error((body && body.error) ? body.error : 'Failed to fetch target lists');
         }
+        cacheNetworkListsForEndpoint(endpointId, body);
         return body;
     }
 
@@ -1840,7 +1912,9 @@
         try {
             const resp = await fetch(API + '/jobs');
             if (!resp.ok) throw new Error('Failed to load jobs');
-            const nextJobs = await resp.json();
+            const rawJobs = await resp.json();
+            await ensureJobPrimaryListNames(rawJobs);
+            const nextJobs = decorateJobsWithPrimaryListNames(rawJobs);
             const nextSignature = JSON.stringify(nextJobs);
             jobs = nextJobs;
 
@@ -2084,7 +2158,7 @@
                 '</div>' +
                 '<div class="job-details">' +
                     '<div class="detail-row"><span class="detail-label">Primary Endpoint</span><span class="detail-value">' + escapeHtml(job.controller_name || 'Unknown') + '</span></div>' +
-                    '<div class="detail-row"><span class="detail-label">Primary List</span><span class="detail-value mono">' + escapeHtml(job.network_list_id) + '</span></div>' +
+                    '<div class="detail-row"><span class="detail-label">Primary List</span><span class="detail-value">' + renderPrimaryListValue(job) + '</span></div>' +
                     '<div class="detail-row"><span class="detail-label">Endpoints</span><span class="detail-value">' + endpointCount + '</span></div>' +
                     '<div class="detail-row"><span class="detail-label">Schedule</span><span class="detail-value">' + scheduleDisplayHtml(job.schedule, !!job.enabled) + '</span></div>' +
                     '<div class="detail-row"><span class="detail-label">IP Retention</span><span class="detail-value">' +
