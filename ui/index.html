@@ -463,6 +463,162 @@
             vertical-align: top;
         }
         .logs-table tr:hover td { background: #f7fbff; }
+        .jobs-view-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.8rem;
+            margin-bottom: 0.8rem;
+        }
+        .view-toggle {
+            display: inline-flex;
+            gap: 0.35rem;
+            padding: 0.25rem;
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: var(--shadow-soft);
+        }
+        .view-toggle-btn {
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.82rem;
+            font-weight: 700;
+            padding: 0.36rem 0.65rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+        .view-toggle-btn.active {
+            background: linear-gradient(135deg, var(--primary) 0%, #109083 100%);
+            color: #fff;
+            border-color: rgba(0, 0, 0, 0.05);
+            box-shadow: 0 4px 10px rgba(15, 118, 110, 0.25);
+        }
+        .jobs-table-wrap {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow-x: auto;
+            background: var(--card);
+            box-shadow: var(--shadow-soft);
+        }
+        .jobs-table-wrap .logs-table {
+            border: none;
+            border-radius: 0;
+        }
+        .table-customizer-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .table-customizer-left,
+        .table-customizer-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .column-count-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 9px;
+            background: rgba(15, 118, 110, 0.14);
+            color: var(--primary);
+            font-size: 0.68rem;
+            font-weight: 700;
+            margin-left: 0.2rem;
+        }
+        .column-picker-dropdown {
+            position: fixed;
+            z-index: 280;
+            width: 320px;
+            max-height: 480px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: var(--card);
+            border: 1px solid var(--border-strong);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+        }
+        .column-picker-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+        .column-picker-close {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-bg);
+            color: var(--text-secondary);
+            font-size: 0.82rem;
+            font-weight: 700;
+            cursor: pointer;
+            padding: 0.2rem 0.48rem;
+        }
+        .column-picker-body {
+            overflow-y: auto;
+            padding: 0.4rem;
+            display: grid;
+            gap: 0.4rem;
+        }
+        .column-picker-group {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .column-picker-group-title {
+            padding: 0.42rem 0.6rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            background: var(--panel-bg);
+        }
+        .column-picker-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+            padding: 0.35rem;
+        }
+        .column-picker-item {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-size: 0.81rem;
+            font-weight: 600;
+            padding: 0.3rem 0.38rem;
+            border-radius: 7px;
+            cursor: pointer;
+        }
+        .column-picker-item:hover {
+            background: #eef4fb;
+        }
+        .logs-table th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        .logs-table .th-content {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .sort-indicator {
+            color: var(--primary);
+            font-weight: 800;
+            font-size: 0.78rem;
+            line-height: 1;
+        }
         .details-block {
             margin-top: 0.5rem;
             padding: 0.5rem;
@@ -575,8 +731,21 @@
                 font-size: 0.74rem;
             }
             .theme-toggle {
-                font-size: 0.9rem;
-                padding: 0.28rem 0.45rem;
+                width: 62px;
+                height: 32px;
+            }
+            .theme-toggle-icon {
+                width: 24px;
+                height: 24px;
+                top: 4px;
+                left: 4px;
+            }
+            .theme-toggle input:checked + .theme-toggle-slider .theme-toggle-icon {
+                transform: translateX(30px);
+            }
+            .jobs-view-toolbar {
+                flex-direction: column;
+                align-items: flex-start;
             }
             .job-actions {
                 justify-content: flex-end;
@@ -693,21 +862,161 @@
         [data-theme="dark"] .job-context-item-danger {
             color: var(--error);
         }
+        /* PrintMaster-inspired theme toggle */
         .theme-toggle {
-            background: rgba(255,255,255,0.14);
-            border: 1px solid rgba(255,255,255,0.34);
-            border-radius: 10px;
-            color: #fff;
+            position: relative;
+            width: 80px;
+            height: 40px;
             cursor: pointer;
-            font-size: 1rem;
-            line-height: 1;
-            padding: 0.38rem 0.54rem;
-            transition: background 0.2s, transform 0.2s;
-            align-self: center;
+            flex-shrink: 0;
         }
-        .theme-toggle:hover {
-            background: rgba(255,255,255,0.25);
-            transform: translateY(-1px);
+        .theme-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+        .theme-toggle-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(to bottom, #1e3a5f 0%, #2d5a8e 50%, #4a7ba7 100%);
+            border-radius: 20px;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        .theme-toggle-slider::before {
+            content: '';
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow:
+                15px 5px 0 0px rgba(255, 255, 255, 0.8),
+                25px 12px 0 0px rgba(255, 255, 255, 0.6),
+                45px 8px 0 0px rgba(255, 255, 255, 0.9),
+                55px 15px 0 0px rgba(255, 255, 255, 0.7),
+                10px 22px 0 0px rgba(255, 255, 255, 0.5);
+            opacity: 1;
+            transition: opacity 0.5s ease;
+            z-index: 1;
+        }
+        .theme-toggle-slider::after {
+            content: '';
+            position: absolute;
+            top: 12px;
+            right: 15px;
+            width: 16px;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 10px;
+            box-shadow:
+                -20px 8px 0 -1px rgba(255, 255, 255, 0.6),
+                25px 5px 0 -2px rgba(255, 255, 255, 0.5),
+                8px -3px 0 -1px rgba(255, 255, 255, 0.8);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: 1;
+        }
+        .theme-toggle-icon {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 32px;
+            height: 32px;
+            background: #f5d547;
+            border-radius: 50%;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow:
+                0 0 10px rgba(245, 213, 71, 0.6),
+                0 0 20px rgba(245, 213, 71, 0.4),
+                0 2px 6px rgba(0, 0, 0, 0.4);
+            z-index: 10;
+            overflow: visible;
+        }
+        .theme-toggle-icon::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            margin: -2px 0 0 -2px;
+            background: transparent;
+            box-shadow:
+                0 -20px 0 0 #fdb813,
+                14px -14px 0 0 #fdb813,
+                20px 0 0 0 #fdb813,
+                14px 14px 0 0 #fdb813,
+                0 20px 0 0 #fdb813,
+                -14px 14px 0 0 #fdb813,
+                -20px 0 0 0 #fdb813,
+                -14px -14px 0 0 #fdb813;
+            opacity: 0;
+            transition: opacity 0.4s ease, transform 0.5s ease;
+            transform: rotate(0deg) scale(0.8);
+        }
+        .theme-toggle-icon::after {
+            content: '';
+            position: absolute;
+            top: 6px;
+            right: 8px;
+            width: 6px;
+            height: 6px;
+            background: #d4c042;
+            border-radius: 50%;
+            box-shadow:
+                -8px 6px 0 -1px #d4c042,
+                4px 10px 0 -2px #d4c042;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1;
+        }
+        .theme-toggle input:checked + .theme-toggle-slider {
+            background: linear-gradient(to bottom, #87ceeb 0%, #98d8e8 50%, #b0e2f5 100%);
+        }
+        .theme-toggle input:checked + .theme-toggle-slider::before {
+            opacity: 0;
+        }
+        .theme-toggle input:checked + .theme-toggle-slider::after {
+            opacity: 1;
+        }
+        .theme-toggle input:checked + .theme-toggle-slider .theme-toggle-icon {
+            transform: translateX(40px);
+            background: #fdb813;
+            box-shadow:
+                0 0 20px rgba(253, 184, 19, 0.8),
+                0 0 40px rgba(253, 184, 19, 0.6),
+                0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        .theme-toggle input:checked + .theme-toggle-slider .theme-toggle-icon::before {
+            opacity: 1;
+            transform: rotate(22.5deg) scale(1);
+        }
+        .theme-toggle input:checked + .theme-toggle-slider .theme-toggle-icon::after {
+            opacity: 0;
+        }
+        .theme-toggle input:not(:checked) + .theme-toggle-slider .theme-toggle-icon {
+            background: #e8e8d0;
+            box-shadow:
+                0 0 10px rgba(232, 232, 208, 0.4),
+                0 2px 6px rgba(0, 0, 0, 0.5);
+        }
+        [data-theme="dark"] .view-toggle {
+            background: rgba(18, 33, 49, 0.8);
+            border-color: #314860;
+        }
+        [data-theme="dark"] .view-toggle-btn {
+            color: var(--text-secondary);
+        }
+        [data-theme="dark"] .column-picker-item:hover {
+            background: #1d2f43;
         }
 
         @keyframes modalIn {
@@ -738,7 +1047,12 @@
                     <button class="btn btn-light" onclick="showJobModal()">+ New Sync Job</button>
                 </div>
                 <button class="btn btn-light header-mobile-menu-btn" type="button" onclick="toggleHeaderMobileMenu(event)">Menu</button>
-                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode">&#9790;</button>
+                <label class="theme-toggle" title="Toggle theme">
+                    <input type="checkbox" id="theme-toggle-checkbox">
+                    <div class="theme-toggle-slider">
+                        <div class="theme-toggle-icon"></div>
+                    </div>
+                </label>
             </div>
         </div>
     </header>
@@ -748,7 +1062,20 @@
             <span id="dnsBannerMsg"></span>
             <button class="btn btn-small btn-danger" onclick="showDNSModal()">Configure DNS Servers</button>
         </div>
+        <div class="jobs-view-toolbar" id="jobsViewToolbar">
+            <div class="view-toggle" role="group" aria-label="Jobs view">
+                <button class="view-toggle-btn" type="button" data-view="cards" onclick="setJobsViewMode('cards')">Cards</button>
+                <button class="view-toggle-btn" type="button" data-view="table" onclick="setJobsViewMode('table')">Table</button>
+            </div>
+            <div id="jobsTableCustomizerToolbar" class="hidden"></div>
+        </div>
         <div id="jobList" class="job-grid"></div>
+        <div id="jobsTableWrap" class="jobs-table-wrap hidden">
+            <table class="logs-table" id="jobsTable">
+                <thead><tr id="jobsTableHead"></tr></thead>
+                <tbody id="jobsTableBody"></tbody>
+            </table>
+        </div>
         <div id="emptyState" class="empty-state hidden">
             <h2>No sync jobs configured</h2>
             <p>Create a sync job to automatically manage endpoint target lists from DNS hostnames.</p>
@@ -1013,6 +1340,7 @@
         <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showJobModal();">+ New Sync Job</button>
     </div>
 
+    <script src="/table-customizer.js"></script>
     <script>
     const API = '/api';
     let jobs = [];
@@ -1037,20 +1365,88 @@
     let activeJobActionId = null;
     let jobsCacheSignature = '';
     let jobsHasRendered = false;
+    let jobsViewMode = localStorage.getItem('nls_jobs_view_mode') === 'table' ? 'table' : 'cards';
+    let jobsTableCustomizer = null;
+
+    const JOB_COLUMN_DEFS = [
+        { id: 'name', label: 'Name', sortKey: 'name', hideable: false, render: function(job) { return '<strong>' + escapeHtml(job.name) + '</strong>'; } },
+        { id: 'primary_endpoint', label: 'Primary Endpoint', sortKey: 'controller_name', render: function(job) { return escapeHtml(job.controller_name || 'Unknown'); } },
+        { id: 'primary_list', label: 'Primary List', sortKey: 'network_list_id', render: function(job) { return '<span class="mono">' + escapeHtml(job.network_list_id || '-') + '</span>'; } },
+        { id: 'endpoints', label: 'Endpoints', sortKey: 'target_count', render: function(job) { var c = Array.isArray(job.targets) && job.targets.length > 0 ? job.targets.length : 1; return String(c); } },
+        { id: 'schedule', label: 'Schedule', sortKey: 'schedule', render: function(job) { return scheduleDisplayHtml(job.schedule, !!job.enabled); } },
+        { id: 'retention', label: 'IP Retention', sortKey: 'observed_ip_ttl_hours', render: function(job) { return job.observed_ip_ttl_hours > 0 ? escapeHtml(String(job.observed_ip_ttl_hours)) + 'h' : '<em>Disabled</em>'; } },
+        { id: 'last_run', label: 'Last Run', sortKey: 'last_run_at', render: function(job) { return job.last_run_at ? formatTime(job.last_run_at) : '<em>Never</em>'; } },
+        { id: 'result', label: 'Result', sortKey: 'last_result', render: function(job) {
+            var r = job.last_result || '';
+            var cls = r.indexOf('success') === 0 ? 'text-success' : (r.indexOf('error') === 0 ? 'text-error' : '');
+            return '<span class="' + cls + '">' + escapeHtml(r || '-') + '</span>';
+        } },
+        { id: 'actions', label: 'Actions', hideable: false, render: function(job) {
+            return '' +
+                '<button class="btn btn-small btn-primary" onclick="runJob(' + job.id + ')">&#9654; Run</button> ' +
+                '<button class="btn btn-small btn-secondary" onclick="editJob(' + job.id + ')">Edit</button> ' +
+                '<button class="btn btn-small btn-secondary" onclick="showNetworkList(' + job.id + ')">View</button> ' +
+                '<button class="btn btn-small btn-secondary" onclick="showLogs(' + job.id + ')">Logs</button> ' +
+                '<button class="btn btn-small btn-danger" onclick="deleteJob(' + job.id + ')">Delete</button>';
+        } },
+    ];
 
     function applyTheme(dark) {
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-        document.getElementById('themeToggle').textContent = dark ? '\u2600' : '\u263E';
+        var toggle = document.getElementById('theme-toggle-checkbox');
+        if (toggle) {
+            toggle.checked = !dark;
+        }
     }
 
-    function toggleTheme() {
-        const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
-        localStorage.setItem('theme', dark ? 'dark' : 'light');
-        applyTheme(dark);
+    function initThemeToggle() {
+        var toggle = document.getElementById('theme-toggle-checkbox');
+        if (!toggle) return;
+        applyTheme(localStorage.getItem('theme') === 'dark');
+        toggle.addEventListener('change', function() {
+            var dark = !toggle.checked;
+            localStorage.setItem('theme', dark ? 'dark' : 'light');
+            applyTheme(dark);
+        });
+    }
+
+    function initJobsTableCustomizer() {
+        if (jobsTableCustomizer || typeof TableCustomizer !== 'function') return;
+        jobsTableCustomizer = new TableCustomizer('jobs', {
+            storageKey: 'nls_table_config_jobs',
+            columnDefs: JOB_COLUMN_DEFS,
+            onColumnChange: function() {
+                renderJobs(false);
+            },
+            onSort: function() {
+                renderJobs(false);
+            },
+        });
+    }
+
+    function updateJobsViewToggleUI() {
+        var buttons = document.querySelectorAll('.view-toggle-btn[data-view]');
+        for (var i = 0; i < buttons.length; i++) {
+            var active = buttons[i].getAttribute('data-view') === jobsViewMode;
+            buttons[i].classList.toggle('active', active);
+        }
+        var toolbar = document.getElementById('jobsTableCustomizerToolbar');
+        if (toolbar) {
+            toolbar.classList.toggle('hidden', jobsViewMode !== 'table');
+        }
+    }
+
+    function setJobsViewMode(mode) {
+        jobsViewMode = mode === 'table' ? 'table' : 'cards';
+        localStorage.setItem('nls_jobs_view_mode', jobsViewMode);
+        updateJobsViewToggleUI();
+        renderJobs(false);
     }
 
     async function init() {
-        applyTheme(localStorage.getItem('theme') === 'dark');
+        initThemeToggle();
+        initJobsTableCustomizer();
+        updateJobsViewToggleUI();
         await Promise.all([loadJobs(), loadControllers(), checkHealth()]);
         setInterval(loadJobs, 30000);
         setInterval(checkHealth, 30000);
@@ -1657,19 +2053,12 @@
         }
     }
 
-    function renderJobs(animateCards) {
+    function renderJobCards(animateCards) {
         const list = document.getElementById('jobList');
-        const empty = document.getElementById('emptyState');
         const cardClass = animateCards ? 'job-card job-card-enter' : 'job-card';
 
-        if (jobs.length === 0) {
-            list.classList.add('hidden');
-            empty.classList.remove('hidden');
-            return;
-        }
-
-        empty.classList.add('hidden');
         list.classList.remove('hidden');
+        document.getElementById('jobsTableWrap').classList.add('hidden');
 
         list.innerHTML = jobs.map(function(job) {
             const lastResult = job.last_result || '';
@@ -1718,6 +2107,48 @@
                 '</div>' +
             '</div>';
         }).join('');
+    }
+
+    function renderJobTable() {
+        initJobsTableCustomizer();
+        var cardList = document.getElementById('jobList');
+        var tableWrap = document.getElementById('jobsTableWrap');
+        var toolbar = document.getElementById('jobsTableCustomizerToolbar');
+        var theadRow = document.getElementById('jobsTableHead');
+        var tbody = document.getElementById('jobsTableBody');
+
+        cardList.classList.add('hidden');
+        tableWrap.classList.remove('hidden');
+
+        if (!jobsTableCustomizer) return;
+
+        toolbar.innerHTML = jobsTableCustomizer.renderToolbar();
+        jobsTableCustomizer.bindToolbarEvents(toolbar);
+
+        theadRow.innerHTML = jobsTableCustomizer.renderHeader();
+        jobsTableCustomizer.bindHeaderEvents(theadRow);
+
+        var sortedJobs = jobsTableCustomizer.sortData(jobs);
+        tbody.innerHTML = sortedJobs.map(function(job) {
+            return '<tr>' + jobsTableCustomizer.renderRow(job, {}) + '</tr>';
+        }).join('');
+    }
+
+    function renderJobs(animateCards) {
+        const empty = document.getElementById('emptyState');
+        if (jobs.length === 0) {
+            document.getElementById('jobList').classList.add('hidden');
+            document.getElementById('jobsTableWrap').classList.add('hidden');
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        empty.classList.add('hidden');
+        if (jobsViewMode === 'table') {
+            renderJobTable();
+        } else {
+            renderJobCards(animateCards);
+        }
     }
 
     function openJobActionsMenuAt(x, y, jobId) {
