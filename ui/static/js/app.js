@@ -871,7 +871,7 @@ function renderJobTable() {
 
     var sortedJobs = jobsTableCustomizer.sortData(jobs);
     tbody.innerHTML = sortedJobs.map(function(job) {
-        return '<tr>' + jobsTableCustomizer.renderRow(job, {}) + '</tr>';
+        return '<tr oncontextmenu="return openJobActionsMenu(event, ' + job.id + ')">' + jobsTableCustomizer.renderRow(job, {}) + '</tr>';
     }).join('');
 }
 
