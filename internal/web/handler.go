@@ -183,12 +183,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		switch {
 		case status >= 500:
-			if len(rec.preview) > 0 {
+			if len(rec.preview) > 0 && shouldLogResponsePreview(rec.Header().Get("Content-Type")) {
 				attrs = append(attrs, "response_preview", strings.TrimSpace(string(rec.preview)))
 			}
 			slog.Error("HTTP request failed", attrs...)
 		case status >= 400:
-			if len(rec.preview) > 0 {
+			if len(rec.preview) > 0 && shouldLogResponsePreview(rec.Header().Get("Content-Type")) {
 				attrs = append(attrs, "response_preview", strings.TrimSpace(string(rec.preview)))
 			}
 			slog.Warn("HTTP request error", attrs...)
@@ -196,6 +196,14 @@ func loggingMiddleware(next http.Handler) http.Handler {
 			slog.Info("HTTP request", attrs...)
 		}
 	})
+}
+
+func shouldLogResponsePreview(contentType string) bool {
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	if strings.Contains(contentType, "text/html") {
+		return false
+	}
+	return true
 }
 
 // ---------- Instance Handlers ----------

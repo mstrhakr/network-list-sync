@@ -77,6 +77,15 @@ func TestStatusRecorderAndMiddleware(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("middleware response status = %d", rr.Code)
 	}
+
+	htmlRR := httptest.NewRecorder()
+	htmlRR.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if !shouldLogResponsePreview("application/json") {
+		t.Fatal("shouldLogResponsePreview(json) = false, want true")
+	}
+	if shouldLogResponsePreview(htmlRR.Header().Get("Content-Type")) {
+		t.Fatal("shouldLogResponsePreview(html) = true, want false")
+	}
 }
 
 func TestHealthEndpoint(t *testing.T) {
