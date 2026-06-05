@@ -27,6 +27,32 @@ let jobsTableCustomizer = null;
 let networkListNameCache = Object.create(null);
 let networkListsLoadedControllers = Object.create(null);
 let networkListFetchPromises = Object.create(null);
+let controllerProviderChangeBound = false;
+
+const CONTROLLER_PROVIDER_UI = {
+    unifi: {
+        namePlaceholder: 'e.g., Primary UniFi Controller',
+        nameHint: 'Friendly UniFi endpoint label shown in job target selectors.',
+        urlPlaceholder: 'https://192.168.1.1',
+        urlHint: 'Controller origin only (no path), e.g. https://192.168.1.1. Potential cloud endpoint: https://unifi.ui.com.',
+        siteLabel: 'Site',
+        sitePlaceholder: 'default',
+        siteHint: 'UniFi site name (usually default).',
+        apiLabel: 'API Key',
+        apiHint: 'Paste the UniFi API key for this endpoint.',
+    },
+    npm: {
+        namePlaceholder: 'e.g., Primary NPM Instance',
+        nameHint: 'Friendly NPM endpoint label shown in job target selectors.',
+        urlPlaceholder: 'http://192.168.1.50:81',
+        urlHint: 'NPM origin only (no path), e.g. http://192.168.1.50:81.',
+        siteLabel: 'User',
+        sitePlaceholder: 'admin@example.com',
+        siteHint: 'NPM login identity (email or username).',
+        apiLabel: 'Password',
+        apiHint: 'Use the NPM account password.',
+    },
+};
 
 const JOB_COLUMN_DEFS = [
     { id: 'name', label: 'Name', sortKey: 'name', hideable: false, render: function(job) { return '<strong>' + escapeHtml(job.name) + '</strong>'; } },
@@ -171,9 +197,66 @@ function setJobsViewMode(mode) {
     renderJobs(false);
 }
 
+function getControllerProviderUI(provider) {
+    var normalized = String(provider || 'unifi').toLowerCase();
+    return CONTROLLER_PROVIDER_UI[normalized] || CONTROLLER_PROVIDER_UI.unifi;
+}
+
+function resolveControllerSiteValue(provider, rawSiteValue) {
+    return String(rawSiteValue || '').trim();
+}
+
+function applyControllerProviderUI(options) {
+    var opts = options || {};
+    var providerEl = document.getElementById('ctrlProvider');
+    var nameInput = document.getElementById('ctrlName');
+    var nameHint = document.getElementById('ctrlNameHint');
+    var urlInput = document.getElementById('ctrlUrl');
+    var urlHint = document.getElementById('ctrlUrlHint');
+    var siteLabel = document.getElementById('ctrlSiteLabel');
+    var siteInput = document.getElementById('ctrlSite');
+    var siteHint = document.getElementById('ctrlSiteHint');
+    var apiLabel = document.getElementById('ctrlApiKeyLabel');
+    var apiInput = document.getElementById('ctrlApiKey');
+    var apiHint = document.getElementById('ctrlApiKeyHint');
+    if (!providerEl || !nameInput || !nameHint || !urlInput || !urlHint || !siteLabel || !siteInput || !siteHint || !apiLabel || !apiInput || !apiHint) return;
+
+    var ui = getControllerProviderUI(providerEl.value);
+    nameInput.placeholder = ui.namePlaceholder;
+    nameHint.textContent = ui.nameHint;
+    urlInput.placeholder = ui.urlPlaceholder;
+    urlHint.textContent = ui.urlHint;
+    siteLabel.textContent = ui.siteLabel;
+    siteInput.placeholder = ui.sitePlaceholder;
+    siteHint.textContent = ui.siteHint;
+    apiLabel.textContent = ui.apiLabel;
+    apiHint.textContent = ui.apiHint;
+
+    if (opts.editing) {
+        apiInput.placeholder = 'Leave blank to keep existing';
+    } else if (opts.clearApiPlaceholder) {
+        apiInput.placeholder = '';
+    }
+}
+
+function bindControllerProviderChange() {
+    var providerEl = document.getElementById('ctrlProvider');
+    if (!providerEl || controllerProviderChangeBound) return;
+    providerEl.addEventListener('change', function() {
+        var editing = !!document.getElementById('ctrlId').value;
+        applyControllerProviderUI({
+            editing: editing,
+            clearApiPlaceholder: !editing,
+        });
+    });
+    controllerProviderChangeBound = true;
+}
+
 async function init() {
     initThemeToggle();
     initJobsTableCustomizer();
+    bindControllerProviderChange();
+    applyControllerProviderUI({ clearApiPlaceholder: true });
     updateJobsViewToggleUI();
     await Promise.all([loadJobs(), loadControllers(), checkHealth()]);
     setInterval(loadJobs, 30000);
@@ -251,19 +334,21 @@ function showControllerForm(ctrl) {
         document.getElementById('ctrlProvider').value = (ctrl.provider || 'unifi').toLowerCase();
         document.getElementById('ctrlName').value = ctrl.name;
         document.getElementById('ctrlUrl').value = ctrl.url;
-        document.getElementById('ctrlSite').value = ctrl.site;
+        document.getElementById('ctrlSite').value = ctrl.site || '';
         document.getElementById('ctrlApiKey').value = '';
         document.getElementById('ctrlApiKey').placeholder = 'Leave blank to keep existing';
         document.getElementById('ctrlApiKey').required = false;
         document.getElementById('ctrlSkipTls').checked = !!ctrl.skip_tls_verify;
+        applyControllerProviderUI({ editing: true });
     } else {
         document.getElementById('controllerForm').reset();
         document.getElementById('ctrlId').value = '';
         document.getElementById('ctrlProvider').value = 'unifi';
-        document.getElementById('ctrlSite').value = 'default';
+        document.getElementById('ctrlSite').value = '';
         document.getElementById('ctrlApiKey').placeholder = '';
         document.getElementById('ctrlApiKey').required = true;
         document.getElementById('ctrlSkipTls').checked = false;
+        applyControllerProviderUI({ clearApiPlaceholder: true });
     }
 }
 
@@ -279,16 +364,18 @@ function editController(id) {
 async function saveController(event) {
     event.preventDefault();
     var id = document.getElementById('ctrlId').value;
+    var provider = document.getElementById('ctrlProvider').value || 'unifi';
+    var providerUI = getControllerProviderUI(provider);
     var data = {
-        provider: document.getElementById('ctrlProvider').value || 'unifi',
+        provider: provider,
         name: document.getElementById('ctrlName').value,
         url: document.getElementById('ctrlUrl').value,
-        site: document.getElementById('ctrlSite').value || 'default',
+        site: resolveControllerSiteValue(provider, document.getElementById('ctrlSite').value),
         api_key: document.getElementById('ctrlApiKey').value,
         skip_tls_verify: document.getElementById('ctrlSkipTls').checked,
     };
     if (!id && !data.api_key) {
-        showToast('API key or secret is required for new endpoints', 'error');
+        showToast(providerUI.apiLabel + ' is required for new endpoints', 'error');
         return;
     }
     var url = id ? API + '/controllers/' + id : API + '/controllers';
@@ -314,16 +401,18 @@ async function saveController(event) {
 
 async function testController() {
     var id = document.getElementById('ctrlId').value;
+    var provider = document.getElementById('ctrlProvider').value || 'unifi';
+    var providerUI = getControllerProviderUI(provider);
     var apiKey = document.getElementById('ctrlApiKey').value;
     if (!apiKey && !id) {
-        showToast('Enter an API key or secret to test a new endpoint', 'error');
+        showToast('Enter ' + providerUI.apiLabel + ' to test a new endpoint', 'error');
         return;
     }
     var data = {
         controller_id: id ? parseInt(id, 10) : 0,
-        provider: document.getElementById('ctrlProvider').value || 'unifi',
+        provider: provider,
         url: document.getElementById('ctrlUrl').value,
-        site: document.getElementById('ctrlSite').value || 'default',
+        site: resolveControllerSiteValue(provider, document.getElementById('ctrlSite').value),
         api_key: apiKey,
         skip_tls_verify: document.getElementById('ctrlSkipTls').checked,
     };

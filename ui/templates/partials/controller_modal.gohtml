@@ -15,7 +15,8 @@
                     <input type="hidden" id="ctrlId">
                     <div class="form-group">
                         <label for="ctrlName">Name</label>
-                        <input type="text" id="ctrlName" required placeholder="e.g., Home UDM Pro">
+                        <input type="text" id="ctrlName" required placeholder="Primary UniFi Controller">
+                        <span class="hint" id="ctrlNameHint">Friendly label shown in endpoint pickers and job targets.</span>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -28,16 +29,20 @@
                         <div class="form-group">
                             <label for="ctrlUrl">URL</label>
                             <input type="text" id="ctrlUrl" required placeholder="https://192.168.1.1">
-                        </div>
-                        <div class="form-group">
-                            <label for="ctrlSite">Site / Identity</label>
-                            <input type="text" id="ctrlSite" value="default" placeholder="default">
+                            <span class="hint" id="ctrlUrlHint">Controller origin only (no path), e.g. https://192.168.1.1.</span>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label for="ctrlApiKey">API Key / Secret</label>
-                        <input type="password" id="ctrlApiKey">
-                        <span class="hint">UniFi: API key. NPM: account password/secret.</span>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="ctrlSite" id="ctrlSiteLabel">Site</label>
+                            <input type="text" id="ctrlSite" placeholder="default">
+                            <span class="hint" id="ctrlSiteHint">UniFi site name (usually default).</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="ctrlApiKey" id="ctrlApiKeyLabel">API Key</label>
+                            <input type="password" id="ctrlApiKey">
+                            <span class="hint" id="ctrlApiKeyHint">Paste the UniFi API key for this endpoint.</span>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">

@@ -224,3 +224,10 @@ Each row below needs 3-5 targeted checks in a follow-up research pass.
 2. Convert this table into a provider feasibility issue template.
 3. Start with one homelab target and one cloud target for maximum coverage.
 4. Add a provider capability matrix endpoint to the UI later so users can self-select viable adapters.
+
+## Supported Provider Endpoint Examples
+
+These examples are for quick operator guidance and should be verified in each environment.
+
+- UniFi potential endpoints: https://192.168.1.1
+- NPM potential endpoints: https://nginx.internal.example.com
