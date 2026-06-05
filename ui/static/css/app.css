@@ -550,6 +550,11 @@ form { padding: 1.5rem; }
     font-weight: 700;
     color: var(--text-secondary);
     border-bottom: 2px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    /* box-shadow preserves visible bottom border under border-collapse:collapse when sticky */
+    box-shadow: inset 0 -2px 0 var(--border);
 }
 
 .logs-table td {
@@ -976,7 +981,7 @@ form { padding: 1.5rem; }
     color: var(--text);
 }
 
-[data-theme="dark"] .logs-table th { background: #132132; }
+[data-theme="dark"] .logs-table th { background: #132132; box-shadow: inset 0 -2px 0 var(--border); }
 [data-theme="dark"] .logs-table tr:hover td { background: #162636; }
 [data-theme="dark"] .resolve-preview,
 [data-theme="dark"] .details-block { color: var(--text); }
