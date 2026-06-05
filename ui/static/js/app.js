@@ -29,12 +29,33 @@ let networkListNameCache = Object.create(null);
 let networkListsLoadedControllers = Object.create(null);
 let networkListFetchPromises = Object.create(null);
 let controllerProviderChangeBound = false;
+let jobsRefreshTimer = null;
+let healthRefreshTimer = null;
+let authRedirectInProgress = false;
+
+function clearRefreshTimers() {
+    if (jobsRefreshTimer) {
+        clearInterval(jobsRefreshTimer);
+        jobsRefreshTimer = null;
+    }
+    if (healthRefreshTimer) {
+        clearInterval(healthRefreshTimer);
+        healthRefreshTimer = null;
+    }
+}
+
+function redirectToLogin() {
+    if (authRedirectInProgress) return;
+    authRedirectInProgress = true;
+    clearRefreshTimers();
+    window.location.replace('/login');
+}
 
 window.fetch = async function(input, init) {
     const response = await browserFetch(input, init);
     const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
     if (response.status === 401 && url.indexOf(API + '/') === 0) {
-        window.location.href = '/login';
+        redirectToLogin();
     }
     return response;
 };
@@ -268,22 +289,29 @@ async function init() {
     bindControllerProviderChange();
     applyControllerProviderUI({ clearApiPlaceholder: true });
     updateJobsViewToggleUI();
-    await Promise.all([loadJobs(), loadControllers(), checkHealth()]);
-    setInterval(loadJobs, 30000);
-    setInterval(checkHealth, 30000);
+    const startupResults = await Promise.all([loadJobs(), loadControllers(), checkHealth()]);
+    if (authRedirectInProgress || !startupResults[0] || !startupResults[1]) {
+        clearRefreshTimers();
+        return;
+    }
+    clearRefreshTimers();
+    jobsRefreshTimer = setInterval(loadJobs, 30000);
+    healthRefreshTimer = setInterval(checkHealth, 30000);
 }
 
 async function logout() {
     try {
+        clearRefreshTimers();
         await browserFetch('/logout', { method: 'POST' });
     } finally {
-        window.location.href = '/login';
+        redirectToLogin();
     }
 }
 
 async function checkHealth() {
     try {
         const resp = await fetch(API + '/health');
+        if (!resp.ok) return false;
         const data = await resp.json();
         const banner = document.getElementById('dnsBanner');
         const msg = document.getElementById('dnsBannerMsg');
@@ -293,18 +321,22 @@ async function checkHealth() {
             msg.textContent = data.message;
             banner.classList.remove('hidden');
         }
+        return true;
     } catch (err) {
         console.error('Health check error:', err);
+        return false;
     }
 }
 
 async function loadControllers() {
     try {
         const resp = await fetch(API + '/instances');
-        if (!resp.ok) throw new Error('Failed to load instances');
+        if (!resp.ok) return false;
         controllers = await resp.json();
+        return true;
     } catch (err) {
         console.error('Load instances error:', err);
+        return false;
     }
 }
 
@@ -670,7 +702,7 @@ async function loadJobs() {
     try {
         const loadSeq = ++jobsLoadSeq;
         const resp = await fetch(API + '/jobs');
-        if (!resp.ok) throw new Error('Failed to load jobs');
+        if (!resp.ok) return false;
         const rawJobs = await resp.json();
         const initialJobs = decorateJobsWithPrimaryListNames(rawJobs);
         const initialSignature = JSON.stringify(initialJobs);
@@ -698,8 +730,10 @@ async function loadJobs() {
             .catch(function(err) {
                 console.error('Hydrate primary list names error:', err);
             });
+        return true;
     } catch (err) {
         console.error('Load jobs error:', err);
+        return false;
     }
 }
 
