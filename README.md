@@ -6,6 +6,8 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mstrhakr/network-list-sync)](https://github.com/mstrhakr/network-list-sync/blob/main/go.mod)
 [![License](https://img.shields.io/github/license/mstrhakr/network-list-sync)](LICENSE)
 
+![Logo](./docs/logo.png)
+
 Network List Sync resolves hostnames to IPs and keeps provider-managed target lists in sync.
 
 It supports multiple endpoint providers in one deployment, currently:
