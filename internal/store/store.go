@@ -11,7 +11,7 @@ import (
 
 const DefaultObservedIPTTLHours = 7 * 24
 
-// Controller represents a saved set of UniFi controller credentials.
+// Controller represents a saved provider instance configuration.
 type Controller struct {
 	ID            int64  `json:"id"`
 	Provider      string `json:"provider"`
@@ -28,8 +28,8 @@ type Controller struct {
 type SyncJob struct {
 	ID                 int64       `json:"id"`
 	Name               string      `json:"name"`
-	ControllerID       int64       `json:"controller_id"`
-	NetworkListID      string      `json:"network_list_id"`
+	ControllerID       int64       `json:"instance_id"`
+	NetworkListID      string      `json:"target_list_id"`
 	Targets            []JobTarget `json:"targets,omitempty"`
 	Hostnames          string      `json:"hostnames"`
 	Schedule           string      `json:"schedule"`
@@ -39,16 +39,16 @@ type SyncJob struct {
 	LastResult         *string     `json:"last_result"`
 	CreatedAt          string      `json:"created_at"`
 	UpdatedAt          string      `json:"updated_at"`
-	ControllerName     string      `json:"controller_name,omitempty"`
+	ControllerName     string      `json:"instance_name,omitempty"`
 }
 
 // JobTarget binds one sync job to one endpoint/list pair.
 type JobTarget struct {
 	ID             int64  `json:"id"`
 	JobID          int64  `json:"job_id"`
-	ControllerID   int64  `json:"controller_id"`
-	NetworkListID  string `json:"network_list_id"`
-	ControllerName string `json:"controller_name,omitempty"`
+	ControllerID   int64  `json:"instance_id"`
+	NetworkListID  string `json:"target_list_id"`
+	ControllerName string `json:"instance_name,omitempty"`
 	Provider       string `json:"provider,omitempty"`
 }
 

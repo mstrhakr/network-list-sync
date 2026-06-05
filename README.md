@@ -168,18 +168,13 @@ https://www.cloudflare.com/ips-v4
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/controllers | List endpoints |
-| POST | /api/controllers | Create endpoint |
-| GET | /api/controllers/{id} | Get endpoint |
-| PUT | /api/controllers/{id} | Update endpoint |
-| DELETE | /api/controllers/{id} | Delete endpoint |
-| GET | /api/controllers/{id}/network-lists | List provider target lists |
-| POST | /api/controllers/test | Test endpoint connection |
-
-Alias paths are also available under /api/instances, including:
-
-- /api/instances/{id}/access-lists
-- /api/instances/test
+| GET | /api/instances | List endpoints |
+| POST | /api/instances | Create endpoint |
+| GET | /api/instances/{id} | Get endpoint |
+| PUT | /api/instances/{id} | Update endpoint |
+| DELETE | /api/instances/{id} | Delete endpoint |
+| GET | /api/instances/{id}/target-lists | List provider target lists |
+| POST | /api/instances/test | Test endpoint connection |
 
 ### Jobs
 
@@ -190,8 +185,7 @@ Alias paths are also available under /api/instances, including:
 | GET | /api/jobs/{id} | Get job |
 | PUT | /api/jobs/{id} | Update job |
 | DELETE | /api/jobs/{id} | Delete job and history |
-| GET | /api/jobs/{id}/network-list | Get primary or selected target list state |
-| GET | /api/jobs/{id}/access-list | Alias for network-list endpoint |
+| GET | /api/jobs/{id}/target-list | Get primary or selected target list state |
 | POST | /api/jobs/{id}/run | Trigger immediate run |
 | GET | /api/jobs/{id}/logs | Get job run history |
 

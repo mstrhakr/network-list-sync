@@ -43,19 +43,12 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/controllers", h.listControllers)
-	mux.HandleFunc("POST /api/controllers", h.createController)
-	mux.HandleFunc("GET /api/controllers/{id}", h.getController)
-	mux.HandleFunc("PUT /api/controllers/{id}", h.updateController)
-	mux.HandleFunc("DELETE /api/controllers/{id}", h.deleteController)
-	mux.HandleFunc("GET /api/controllers/{id}/network-lists", h.listNetworkLists)
-	mux.HandleFunc("POST /api/controllers/test", h.testController)
 	mux.HandleFunc("GET /api/instances", h.listControllers)
 	mux.HandleFunc("POST /api/instances", h.createController)
 	mux.HandleFunc("GET /api/instances/{id}", h.getController)
 	mux.HandleFunc("PUT /api/instances/{id}", h.updateController)
 	mux.HandleFunc("DELETE /api/instances/{id}", h.deleteController)
-	mux.HandleFunc("GET /api/instances/{id}/access-lists", h.listNetworkLists)
+	mux.HandleFunc("GET /api/instances/{id}/target-lists", h.listNetworkLists)
 	mux.HandleFunc("POST /api/instances/test", h.testController)
 
 	mux.HandleFunc("GET /api/jobs", h.listJobs)
@@ -63,8 +56,7 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 	mux.HandleFunc("GET /api/jobs/{id}", h.getJob)
 	mux.HandleFunc("PUT /api/jobs/{id}", h.updateJob)
 	mux.HandleFunc("DELETE /api/jobs/{id}", h.deleteJob)
-	mux.HandleFunc("GET /api/jobs/{id}/network-list", h.getJobNetworkList)
-	mux.HandleFunc("GET /api/jobs/{id}/access-list", h.getJobNetworkList)
+	mux.HandleFunc("GET /api/jobs/{id}/target-list", h.getJobNetworkList)
 	mux.HandleFunc("POST /api/jobs/{id}/run", h.runJob)
 	mux.HandleFunc("GET /api/jobs/{id}/logs", h.getJobLogs)
 	mux.HandleFunc("POST /api/resolve", h.resolveHostnames)
@@ -197,7 +189,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// ---------- Controller Handlers ----------
+// ---------- Instance Handlers ----------
 
 func (h *Handler) listControllers(w http.ResponseWriter, r *http.Request) {
 	ctrls, err := h.store.ListControllers()
@@ -306,7 +298,7 @@ func (h *Handler) deleteController(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) testController(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ControllerID  int64  `json:"controller_id"`
+		ControllerID  int64  `json:"instance_id"`
 		Provider      string `json:"provider"`
 		URL           string `json:"url"`
 		Site          string `json:"site"`
@@ -366,8 +358,8 @@ func (h *Handler) testController(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"ok":            true,
-		"network_lists": len(lists),
+		"ok":           true,
+		"target_lists": len(lists),
 	})
 }
 

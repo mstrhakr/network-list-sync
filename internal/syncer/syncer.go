@@ -122,7 +122,7 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		ctrl, err := db.GetController(target.ControllerID)
 		if err != nil {
 			failed++
-			detailParts = append(detailParts, fmt.Sprintf("[target controller_id=%d list=%s]\nerror: load endpoint: %v", target.ControllerID, target.NetworkListID, err))
+			detailParts = append(detailParts, fmt.Sprintf("[target instance_id=%d list=%s]\nerror: load endpoint: %v", target.ControllerID, target.NetworkListID, err))
 			continue
 		}
 

@@ -31,10 +31,10 @@ let controllerProviderChangeBound = false;
 
 const CONTROLLER_PROVIDER_UI = {
     unifi: {
-        namePlaceholder: 'e.g., Primary UniFi Controller',
+        namePlaceholder: 'e.g., Primary UniFi Instance',
         nameHint: 'Friendly UniFi endpoint label shown in job target selectors.',
         urlPlaceholder: 'https://192.168.1.1',
-        urlHint: 'Controller origin only (no path), e.g. https://192.168.1.1. Potential cloud endpoint: https://unifi.ui.com.',
+        urlHint: 'Instance origin only (no path), e.g. https://192.168.1.1. Potential cloud endpoint: https://unifi.ui.com.',
         siteLabel: 'Site',
         sitePlaceholder: 'default',
         siteHint: 'UniFi site name (usually default).',
@@ -56,7 +56,7 @@ const CONTROLLER_PROVIDER_UI = {
 
 const JOB_COLUMN_DEFS = [
     { id: 'name', label: 'Name', sortKey: 'name', hideable: false, render: function(job) { return '<strong>' + escapeHtml(job.name) + '</strong>'; } },
-    { id: 'primary_endpoint', label: 'Primary Endpoint', sortKey: 'controller_name', render: function(job) { return escapeHtml(job.controller_name || 'Unknown'); } },
+    { id: 'primary_endpoint', label: 'Primary Endpoint', sortKey: 'instance_name', render: function(job) { return escapeHtml(job.instance_name || 'Unknown'); } },
     { id: 'primary_list', label: 'Primary List', sortKey: 'primary_list_name', render: function(job) { return renderPrimaryListValue(job); } },
     { id: 'endpoints', label: 'Endpoints', sortKey: 'target_count', render: function(job) { var count = Array.isArray(job.targets) && job.targets.length > 0 ? job.targets.length : 1; return String(count); } },
     { id: 'schedule', label: 'Schedule', sortKey: 'schedule', render: function(job) { return scheduleDisplayHtml(job.schedule, !!job.enabled); } },
@@ -86,15 +86,15 @@ function cacheNetworkListsForEndpoint(endpointId, lists) {
 }
 
 function resolvePrimaryListName(job) {
-    if (!job || !job.controller_id || !job.network_list_id) return job && job.network_list_id ? job.network_list_id : '';
-    return networkListNameCache[networkListCacheKey(job.controller_id, job.network_list_id)] || job.network_list_id;
+    if (!job || !job.instance_id || !job.target_list_id) return job && job.target_list_id ? job.target_list_id : '';
+    return networkListNameCache[networkListCacheKey(job.instance_id, job.target_list_id)] || job.target_list_id;
 }
 
 function renderPrimaryListValue(job) {
     var value = job && job.primary_list_name ? job.primary_list_name : resolvePrimaryListName(job);
     if (!value) return '-';
-    if (job && job.network_list_id && value !== job.network_list_id) {
-        return '<span title="' + escapeHtml(job.network_list_id) + '">' + escapeHtml(value) + '</span>';
+    if (job && job.target_list_id && value !== job.target_list_id) {
+        return '<span title="' + escapeHtml(job.target_list_id) + '">' + escapeHtml(value) + '</span>';
     }
     return '<span class="mono">' + escapeHtml(value) + '</span>';
 }
@@ -133,8 +133,8 @@ async function ensureJobPrimaryListNames(jobList) {
     var seen = Object.create(null);
 
     (jobList || []).forEach(function(job) {
-        var controllerId = String(job && job.controller_id ? job.controller_id : '');
-        if (!controllerId || !job.network_list_id || seen[controllerId] || networkListsLoadedControllers[controllerId]) return;
+        var controllerId = String(job && job.instance_id ? job.instance_id : '');
+        if (!controllerId || !job.target_list_id || seen[controllerId] || networkListsLoadedControllers[controllerId]) return;
         seen[controllerId] = true;
         controllerIds.push(controllerId);
     });
@@ -282,11 +282,11 @@ async function checkHealth() {
 
 async function loadControllers() {
     try {
-        const resp = await fetch(API + '/controllers');
-        if (!resp.ok) throw new Error('Failed to load controllers');
+        const resp = await fetch(API + '/instances');
+        if (!resp.ok) throw new Error('Failed to load instances');
         controllers = await resp.json();
     } catch (err) {
-        console.error('Load controllers error:', err);
+        console.error('Load instances error:', err);
     }
 }
 
@@ -378,7 +378,7 @@ async function saveController(event) {
         showToast(providerUI.apiLabel + ' is required for new endpoints', 'error');
         return;
     }
-    var url = id ? API + '/controllers/' + id : API + '/controllers';
+    var url = id ? API + '/instances/' + id : API + '/instances';
     var method = id ? 'PUT' : 'POST';
     try {
         var resp = await fetch(url, {
@@ -409,7 +409,7 @@ async function testController() {
         return;
     }
     var data = {
-        controller_id: id ? parseInt(id, 10) : 0,
+        instance_id: id ? parseInt(id, 10) : 0,
         provider: provider,
         url: document.getElementById('ctrlUrl').value,
         site: resolveControllerSiteValue(provider, document.getElementById('ctrlSite').value),
@@ -419,14 +419,14 @@ async function testController() {
     if (!data.url) { showToast('Enter a URL to test', 'error'); return; }
     showToast('Testing connection…', 'success');
     try {
-        var resp = await fetch(API + '/controllers/test', {
+        var resp = await fetch(API + '/instances/test', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data),
         });
         var body = await resp.json();
         if (!resp.ok) throw new Error(body.error || 'Connection failed');
-        showToast('Connection OK — found ' + body.network_lists + ' target list(s)', 'success');
+        showToast('Connection OK — found ' + body.target_lists + ' target list(s)', 'success');
     } catch (err) {
         showToast('Test failed: ' + err.message, 'error');
     }
@@ -435,7 +435,7 @@ async function testController() {
 async function deleteController(id) {
     if (!confirm('Delete this endpoint? Jobs using it will stop working.')) return;
     try {
-        var resp = await fetch(API + '/controllers/' + id, { method: 'DELETE' });
+        var resp = await fetch(API + '/instances/' + id, { method: 'DELETE' });
         if (!resp.ok) throw new Error('Delete failed');
         await loadControllers();
         renderControllerTable();
@@ -462,7 +462,7 @@ function formatListOptionLabel(item) {
 }
 
 async function fetchListsForEndpoint(endpointId) {
-    var resp = await fetch(API + '/controllers/' + endpointId + '/network-lists');
+    var resp = await fetch(API + '/instances/' + endpointId + '/target-lists');
     var body = await resp.json();
     if (!resp.ok) {
         throw new Error((body && body.error) ? body.error : 'Failed to fetch target lists');
@@ -529,9 +529,9 @@ function addAdditionalTargetRow(target) {
         populateAdditionalTargetListSelect(endpointSel, listSel, '');
     });
 
-    if (target && target.controller_id) {
-        endpointSel.value = String(target.controller_id);
-        populateAdditionalTargetListSelect(endpointSel, listSel, target.network_list_id || '');
+    if (target && target.instance_id) {
+        endpointSel.value = String(target.instance_id);
+        populateAdditionalTargetListSelect(endpointSel, listSel, target.target_list_id || '');
     }
 }
 
@@ -552,7 +552,7 @@ function collectAdditionalTargets() {
         if (!endpointId || !listID) {
             throw new Error('Each additional target row must include both endpoint and list.');
         }
-        out.push({ controller_id: parseInt(endpointId, 10), network_list_id: listID });
+        out.push({ instance_id: parseInt(endpointId, 10), target_list_id: listID });
     }
     return out;
 }
@@ -704,14 +704,14 @@ async function saveJob(event) {
 
     const targets = [];
     if (primaryControllerID && primaryNetworkListID) {
-        targets.push({ controller_id: primaryControllerID, network_list_id: primaryNetworkListID });
+        targets.push({ instance_id: primaryControllerID, target_list_id: primaryNetworkListID });
     }
     targets.push.apply(targets, additionalTargets);
 
     const data = {
         name: document.getElementById('jobName').value,
-        controller_id: primaryControllerID,
-        network_list_id: primaryNetworkListID,
+        instance_id: primaryControllerID,
+        target_list_id: primaryNetworkListID,
         targets: targets,
         hostnames: document.getElementById('hostnames').value,
         schedule: getScheduleValueFromForm(),
@@ -816,7 +816,7 @@ async function showNetworkList(id) {
     document.getElementById('networkListModal').classList.remove('hidden');
 
     try {
-        const resp = await fetch(API + '/jobs/' + id + '/network-list');
+        const resp = await fetch(API + '/jobs/' + id + '/target-list');
         const data = await resp.json();
         if (!resp.ok) {
             throw new Error(data.error || 'Failed to load target list');
@@ -913,7 +913,7 @@ function renderJobCards(animateCards) {
                 '</span>' +
             '</div>' +
             '<div class="job-details">' +
-                '<div class="detail-row"><span class="detail-label">Primary Endpoint</span><span class="detail-value">' + escapeHtml(job.controller_name || 'Unknown') + '</span></div>' +
+                '<div class="detail-row"><span class="detail-label">Primary Endpoint</span><span class="detail-value">' + escapeHtml(job.instance_name || 'Unknown') + '</span></div>' +
                 '<div class="detail-row"><span class="detail-label">Primary List</span><span class="detail-value">' + renderPrimaryListValue(job) + '</span></div>' +
                 '<div class="detail-row"><span class="detail-label">Endpoints</span><span class="detail-value">' + endpointCount + '</span></div>' +
                 '<div class="detail-row"><span class="detail-label">Schedule</span><span class="detail-value">' + scheduleDisplayHtml(job.schedule, !!job.enabled) + '</span></div>' +
@@ -1122,7 +1122,7 @@ function showJobModal(job) {
     const title = document.getElementById('jobModalTitle');
 
     loadControllers().then(function() {
-        populateControllerDropdown(job ? job.controller_id : '');
+        populateControllerDropdown(job ? job.instance_id : '');
         document.getElementById('additionalTargetsRows').innerHTML = '';
 
         if (job) {
@@ -1146,7 +1146,7 @@ function showJobModal(job) {
                 addAdditionalTargetRow(additional[a]);
             }
             onControllerChange().then(function() {
-                document.getElementById('networkListId').value = job.network_list_id;
+                document.getElementById('networkListId').value = job.target_list_id;
             });
         } else {
             title.textContent = 'New Sync Job';
