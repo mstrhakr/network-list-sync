@@ -1,7 +1,10 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
+	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -20,14 +23,22 @@ type Handler struct {
 	store     *store.Store
 	syncer    *syncer.Syncer
 	scheduler *scheduler.Scheduler
+	uiFS      fs.FS
+	uiTmpl    *template.Template
 }
 
 // NewHandler registers all API routes and the embedded UI file server.
 func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, uiFS fs.FS) http.Handler {
+	uiTmpl := template.Must(template.New("index").ParseFS(uiFS, "templates/*.gohtml", "templates/partials/*.gohtml"))
+	staticFS := mustSubFS(uiFS, "static")
+	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))
+
 	h := &Handler{
 		store:     s,
 		syncer:    syn,
 		scheduler: sched,
+		uiFS:      uiFS,
+		uiTmpl:    uiTmpl,
 	}
 
 	mux := http.NewServeMux()
@@ -63,9 +74,60 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 	mux.HandleFunc("GET /api/dns-servers/{id}", h.getDNSServer)
 	mux.HandleFunc("PUT /api/dns-servers/{id}", h.updateDNSServer)
 	mux.HandleFunc("DELETE /api/dns-servers/{id}", h.deleteDNSServer)
-	mux.Handle("GET /", http.FileServer(http.FS(uiFS)))
+	mux.HandleFunc("GET /{$}", h.index)
+	mux.Handle("GET /static/", staticHandler)
+	mux.HandleFunc("GET /logo.png", h.serveLogo)
 
 	return loggingMiddleware(mux)
+}
+
+func mustSubFS(root fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(root, dir)
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
+
+func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
+	var buf bytes.Buffer
+	if err := h.uiTmpl.ExecuteTemplate(&buf, "index", nil); err != nil {
+		http.Error(w, "failed to render UI", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (h *Handler) serveLogo(w http.ResponseWriter, r *http.Request) {
+	h.serveUIFile(w, r, "logo.png")
+}
+
+func (h *Handler) serveUIFile(w http.ResponseWriter, r *http.Request, name string) {
+	file, err := h.uiFS.Open(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, "failed to read UI asset", http.StatusInternalServerError)
+		return
+	}
+
+	if seeker, ok := file.(io.ReadSeeker); ok {
+		http.ServeContent(w, r, info.Name(), info.ModTime(), seeker)
+		return
+	}
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "failed to read UI asset", http.StatusInternalServerError)
+		return
+	}
+	http.ServeContent(w, r, info.Name(), info.ModTime(), bytes.NewReader(data))
 }
 
 type statusRecorder struct {

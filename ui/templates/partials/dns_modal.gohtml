@@ -1,0 +1,48 @@
+{{define "dns-modal"}}
+<div id="dnsModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideDNSModal()"></div>
+    <div class="modal-content modal-wide">
+        <div class="modal-header">
+            <h2>Manage DNS Servers</h2>
+            <button class="modal-close" onclick="hideDNSModal()">&times;</button>
+        </div>
+        <div style="padding:1rem;">
+            <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">All enabled servers in this list are queried for every sync and resolve preview. The well-known public resolvers are pre-configured — remove or disable any you don't want. Add private or internal DNS servers as needed.</p>
+            <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+                <button class="btn btn-primary btn-small" onclick="showDNSServerForm()">+ Add DNS Server</button>
+            </div>
+            <div id="dnsFormWrap" class="hidden" style="margin-bottom:1rem;padding:1rem;background:var(--panel-bg);border-radius:var(--radius);">
+                <form id="dnsForm" onsubmit="saveDNSServer(event)">
+                    <input type="hidden" id="dnsId">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="dnsName">Label</label>
+                            <input type="text" id="dnsName" required placeholder="e.g., Internal DNS">
+                        </div>
+                        <div class="form-group">
+                            <label for="dnsAddress">Address</label>
+                            <input type="text" id="dnsAddress" required placeholder="192.168.1.53 or 192.168.1.53:5353">
+                            <span class="hint">IP or IP:port. Defaults to port 53 if omitted.</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" id="dnsEnabled" checked>
+                            Enabled
+                        </label>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                        <button type="button" class="btn btn-secondary btn-small" onclick="hideDNSServerForm()">Cancel</button>
+                        <button type="submit" class="btn btn-primary btn-small">Save</button>
+                    </div>
+                </form>
+            </div>
+            <table class="logs-table" id="dnsTable">
+                <thead><tr><th>Label</th><th>Address</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody id="dnsTableBody"></tbody>
+            </table>
+            <p id="noDNSMsg" class="empty-text hidden">No custom DNS servers. Built-in public resolvers (Cloudflare, Google, Quad9, OpenDNS) are always used.</p>
+        </div>
+    </div>
+</div>
+{{end}}

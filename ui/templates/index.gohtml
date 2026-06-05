@@ -1,0 +1,26 @@
+{{define "index"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network List Sync</title>
+    <link rel="icon" type="image/png" href="/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    {{template "page-shell" .}}
+    {{template "job-modal" .}}
+    {{template "controller-modal" .}}
+    {{template "dns-modal" .}}
+    {{template "logs-modal" .}}
+    {{template "network-list-modal" .}}
+    {{template "overlay-menus" .}}
+    <script src="/static/js/table-customizer.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
+{{end}}

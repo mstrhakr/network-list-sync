@@ -1,0 +1,64 @@
+{{define "controller-modal"}}
+<div id="controllerModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideControllerModal()"></div>
+    <div class="modal-content modal-wide">
+        <div class="modal-header">
+            <h2>Manage Endpoints</h2>
+            <button class="modal-close" onclick="hideControllerModal()">&times;</button>
+        </div>
+        <div style="padding:1rem;">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+                <button class="btn btn-primary btn-small" onclick="showControllerForm()">+ Add Endpoint</button>
+            </div>
+            <div id="controllerFormWrap" class="hidden" style="margin-bottom:1rem;padding:1rem;background:var(--panel-bg);border-radius:var(--radius);">
+                <form id="controllerForm" onsubmit="saveController(event)">
+                    <input type="hidden" id="ctrlId">
+                    <div class="form-group">
+                        <label for="ctrlName">Name</label>
+                        <input type="text" id="ctrlName" required placeholder="e.g., Home UDM Pro">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="ctrlProvider">Provider</label>
+                            <select id="ctrlProvider">
+                                <option value="unifi">UniFi</option>
+                                <option value="npm">NPM</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ctrlUrl">URL</label>
+                            <input type="text" id="ctrlUrl" required placeholder="https://192.168.1.1">
+                        </div>
+                        <div class="form-group">
+                            <label for="ctrlSite">Site / Identity</label>
+                            <input type="text" id="ctrlSite" value="default" placeholder="default">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="ctrlApiKey">API Key / Secret</label>
+                        <input type="password" id="ctrlApiKey">
+                        <span class="hint">UniFi: API key. NPM: account password/secret.</span>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" id="ctrlSkipTls" checked>
+                            Skip TLS certificate verification
+                        </label>
+                        <span class="hint">Enable for self-signed certificates (common for self-hosted endpoints).</span>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                        <button type="button" class="btn btn-secondary btn-small" onclick="hideControllerForm()">Cancel</button>
+                        <button type="button" class="btn btn-secondary btn-small" onclick="testController()">Test Connection</button>
+                        <button type="submit" class="btn btn-primary btn-small">Save Endpoint</button>
+                    </div>
+                </form>
+            </div>
+            <table class="logs-table" id="controllerTable">
+                <thead><tr><th>Name</th><th>Provider</th><th>URL</th><th>Site/Identity</th><th>API Key/Secret</th><th>Skip TLS</th><th>Actions</th></tr></thead>
+                <tbody id="controllerTableBody"></tbody>
+            </table>
+            <p id="noControllersMsg" class="empty-text hidden">No endpoints saved yet. Add one above.</p>
+        </div>
+    </div>
+</div>
+{{end}}

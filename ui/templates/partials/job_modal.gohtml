@@ -1,0 +1,105 @@
+{{define "job-modal"}}
+<div id="jobModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideJobModal()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="jobModalTitle">New Sync Job</h2>
+            <button class="modal-close" onclick="hideJobModal()">&times;</button>
+        </div>
+        <form id="jobForm" onsubmit="saveJob(event)">
+            <input type="hidden" id="jobId">
+            <div class="form-section">
+                <h3 class="section-title">Basic Details</h3>
+                <div class="form-group">
+                    <label for="jobName">Name</label>
+                    <input type="text" id="jobName" required placeholder="e.g., Grafana Synthetic Probes">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="controllerId">Primary Endpoint</label>
+                        <select id="controllerId" required onchange="onControllerChange()">
+                            <option value="">Select an endpoint...</option>
+                        </select>
+                        <span class="hint">Manage endpoints from the header button</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="networkListId">Primary Target List</label>
+                        <select id="networkListId" required>
+                            <option value="">Select an endpoint first...</option>
+                        </select>
+                        <span id="networkListHint" class="hint">Lists are fetched live from the selected endpoint</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="hostnames">Hostnames / IPv4 / CIDR / External URL <small>(one per line, # for comments)</small></label>
+                    <textarea id="hostnames" rows="8" required placeholder="example1.domain.com&#10;203.0.113.10&#10;198.51.100.0/24&#10;https://www.cloudflare.com/ips-v4&#10;# This is a comment"></textarea>
+                    <button type="button" class="btn btn-small btn-secondary" onclick="previewResolve()" style="margin-top:0.4rem">Preview DNS Resolution</button>
+                    <div id="resolvePreview" class="resolve-preview hidden"></div>
+                </div>
+                <div class="form-group">
+                    <label>Additional Targets</label>
+                    <div id="additionalTargetsRows"></div>
+                    <button type="button" class="btn btn-small btn-secondary" onclick="addAdditionalTargetRow()" style="margin-top:0.4rem">+ Add Endpoint</button>
+                    <span class="hint">Each row must choose an endpoint and a target list. Primary target uses the selectors above.</span>
+                </div>
+            </div>
+            <div class="form-section">
+                <h3 class="section-title">Schedule</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="schedulePreset">Schedule Type</label>
+                        <select id="schedulePreset" onchange="onSchedulePresetChange()">
+                            <option value="manual">Manual only</option>
+                            <option value="hourly">Hourly</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="custom">Custom cron</option>
+                        </select>
+                        <span class="hint">Choose a common schedule or use a custom cron expression.</span>
+                    </div>
+                    <div id="scheduleEnabledWrap" class="form-group">
+                        <div class="toggle-field">
+                            <label class="toggle-title" for="enabled">Scheduled Runs Enabled</label>
+                            <label class="toggle">
+                                <input type="checkbox" id="enabled" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <span class="hint">Only affects automatic cron execution. Manual &quot;Run Now&quot; remains available.</span>
+                    </div>
+                </div>
+                <div id="customScheduleWrap" class="form-group hidden">
+                    <label for="schedule">Custom cron expression</label>
+                    <input type="text" id="schedule" placeholder="0 */6 * * *">
+                    <span class="hint">Examples: <code>0 */6 * * *</code> every 6h, <code>0 0 * * *</code> daily, <code>*/30 * * * *</code> every 30m</span>
+                </div>
+            </div>
+            <div class="form-section">
+                <h3 class="section-title">IP Retention</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <div class="toggle-field">
+                            <label class="toggle-title" for="observedIpRetentionEnabled">Retain observed IPs</label>
+                            <label class="toggle">
+                                <input type="checkbox" id="observedIpRetentionEnabled" checked onchange="onObservedIpRetentionToggle()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <span class="hint">Keep recently resolved DNS answers in target lists to reduce flapping from short TTLs.</span>
+                    </div>
+                    <div id="retentionHoursWrap" class="form-group">
+                        <label for="observedIpTtlHours">Retention window (hours)</label>
+                        <input type="number" id="observedIpTtlHours" min="1" step="1" value="168">
+                        <span class="hint">Set how long observed IPs remain eligible before they age out.</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideJobModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

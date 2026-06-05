@@ -1,0 +1,53 @@
+{{define "page-shell"}}
+<header>
+    <div class="header-content">
+        <div class="header-brand">
+            <img class="header-logo" src="/logo.png" alt="Application logo">
+            <div class="header-brand-text">
+                <h1>Network List Sync</h1>
+                <p>DNS-driven endpoint list automation</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="header-actions">
+                <button class="btn btn-light" onclick="showDNSModal()">DNS Servers</button>
+                <button class="btn btn-light" onclick="showControllerModal()">Endpoints</button>
+                <button class="btn btn-light" onclick="showJobModal()">+ New Sync Job</button>
+            </div>
+            <button class="btn btn-light header-mobile-menu-btn" type="button" onclick="toggleHeaderMobileMenu(event)">Menu</button>
+            <label class="theme-toggle" title="Toggle theme">
+                <input type="checkbox" id="theme-toggle-checkbox">
+                <div class="theme-toggle-slider">
+                    <div class="theme-toggle-icon"></div>
+                </div>
+            </label>
+        </div>
+    </div>
+</header>
+
+<main>
+    <div id="dnsBanner" class="hidden" style="background:var(--error-bg);border-left:4px solid var(--error);color:var(--error);padding:0.85rem 1.25rem;border-radius:var(--radius);margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;">
+        <span id="dnsBannerMsg"></span>
+        <button class="btn btn-small btn-danger" onclick="showDNSModal()">Configure DNS Servers</button>
+    </div>
+    <div class="jobs-view-toolbar" id="jobsViewToolbar">
+        <div class="view-toggle" role="group" aria-label="Jobs view">
+            <button class="view-toggle-btn" type="button" data-view="cards" onclick="setJobsViewMode('cards')">Cards</button>
+            <button class="view-toggle-btn" type="button" data-view="table" onclick="setJobsViewMode('table')">Table</button>
+        </div>
+        <div id="jobsTableCustomizerToolbar" class="hidden"></div>
+    </div>
+    <div id="jobList" class="job-grid"></div>
+    <div id="jobsTableWrap" class="jobs-table-wrap hidden">
+        <table class="logs-table" id="jobsTable">
+            <thead><tr id="jobsTableHead"></tr></thead>
+            <tbody id="jobsTableBody"></tbody>
+        </table>
+    </div>
+    <div id="emptyState" class="empty-state hidden">
+        <h2>No sync jobs configured</h2>
+        <p>Create a sync job to automatically manage endpoint target lists from DNS hostnames.</p>
+        <button class="btn btn-primary" onclick="showJobModal()">+ Create First Job</button>
+    </div>
+</main>
+{{end}}

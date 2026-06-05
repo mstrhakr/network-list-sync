@@ -1,0 +1,12 @@
+{{define "logs-modal"}}
+<div id="logsModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideLogsModal()"></div>
+    <div class="modal-content modal-wide">
+        <div class="modal-header">
+            <h2 id="logsModalTitle">Run History</h2>
+            <button class="modal-close" onclick="hideLogsModal()">&times;</button>
+        </div>
+        <div id="logsContent" style="padding:1rem;"></div>
+    </div>
+</div>
+{{end}}

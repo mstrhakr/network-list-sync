@@ -1,0 +1,12 @@
+{{define "network-list-modal"}}
+<div id="networkListModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideNetworkListModal()"></div>
+    <div class="modal-content modal-wide">
+        <div class="modal-header">
+            <h2 id="networkListModalTitle">Current Target List</h2>
+            <button class="modal-close" onclick="hideNetworkListModal()">&times;</button>
+        </div>
+        <div id="networkListContent" style="padding:1rem;"></div>
+    </div>
+</div>
+{{end}}
