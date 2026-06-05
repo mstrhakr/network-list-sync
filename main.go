@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/mstrhakr/network-list-sync/internal/auth"
 	appLog "github.com/mstrhakr/network-list-sync/internal/logging"
 
 	"github.com/mstrhakr/network-list-sync/internal/scheduler"
@@ -75,6 +77,17 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	initialAdminUsername := strings.TrimSpace(os.Getenv("NLS_INITIAL_ADMIN_USERNAME"))
+	initialAdminPassword := strings.TrimSpace(os.Getenv("NLS_INITIAL_ADMIN_PASSWORD"))
+	createdAdmin, err := auth.BootstrapInitialAdmin(db, initialAdminUsername, initialAdminPassword)
+	if err != nil {
+		slog.Error("Failed to bootstrap initial admin", "error", err)
+		os.Exit(1)
+	}
+	if createdAdmin {
+		slog.Info("Created initial admin from environment variables", "username", strings.ToLower(initialAdminUsername))
+	}
 
 	syn := syncer.New()
 

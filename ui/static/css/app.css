@@ -93,13 +93,13 @@ header {
 }
 
 .btn.header-mobile-menu-btn {
-    display: none;
+    display: inline-flex;
 }
 
 .header-mobile-menu {
     position: fixed;
     z-index: 260;
-    min-width: 200px;
+    min-width: 240px;
     background: var(--card);
     border: 1px solid var(--border-strong);
     border-radius: 10px;
@@ -108,6 +108,45 @@ header {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+}
+
+.header-menu-user {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 0.42rem 0.52rem;
+}
+
+.header-menu-user strong {
+    color: var(--text);
+}
+
+.header-menu-theme {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text);
+    padding: 0.32rem 0.4rem;
+    cursor: pointer;
+}
+
+.header-menu-theme .theme-toggle {
+    width: 62px;
+    height: 32px;
+}
+
+.header-menu-theme .theme-toggle-icon {
+    width: 24px;
+    height: 24px;
+    top: 4px;
+    left: 4px;
+}
+
+.header-menu-theme .theme-toggle input:checked + .theme-toggle-slider .theme-toggle-icon {
+    transform: translateX(30px);
 }
 
 .header-logo {
@@ -602,6 +641,14 @@ form { padding: 1.5rem; }
     margin-bottom: 0.8rem;
 }
 
+.jobs-view-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
 .view-toggle {
     display: inline-flex;
     gap: 0.35rem;
@@ -647,7 +694,14 @@ form { padding: 1.5rem; }
 .table-customizer-toolbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
+    gap: 0.5rem;
+}
+
+.table-customizer-left .btn,
+.jobs-view-actions > .btn {
+    min-height: 36px;
+    justify-content: center;
 }
 
 .table-customizer-left,
@@ -885,9 +939,6 @@ form { padding: 1.5rem; }
         margin-left: auto;
         gap: 0.4rem;
     }
-    .header-actions {
-        display: none;
-    }
     .header-brand-text p { display: none; }
     header h1 {
         max-width: 45vw;
@@ -901,19 +952,6 @@ form { padding: 1.5rem; }
         display: inline-flex;
         padding: 0.28rem 0.55rem;
         font-size: 0.74rem;
-    }
-    .theme-toggle {
-        width: 62px;
-        height: 32px;
-    }
-    .theme-toggle-icon {
-        width: 24px;
-        height: 24px;
-        top: 4px;
-        left: 4px;
-    }
-    .theme-toggle input:checked + .theme-toggle-slider .theme-toggle-icon {
-        transform: translateX(30px);
     }
     .jobs-view-toolbar {
         flex-direction: column;
@@ -1244,4 +1282,78 @@ form { padding: 1.5rem; }
 @keyframes riseIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+.login-main {
+    min-height: 100vh;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    display: grid;
+    place-items: center;
+    padding: 1.25rem;
+}
+
+.login-card {
+    width: min(100%, 460px);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.15rem;
+}
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.login-logo {
+    height: 44px;
+    width: auto;
+}
+
+.login-brand h1 {
+    margin: 0;
+    font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+    font-size: 1.1rem;
+}
+
+.login-brand p {
+    margin: 0.1rem 0 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.login-form {
+    padding: 0;
+}
+
+.login-error {
+    margin-bottom: 0.9rem;
+    border: 1px solid #f2c3bd;
+    background: var(--error-bg);
+    color: var(--error);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.login-submit {
+    width: 100%;
+    justify-content: center;
+}
+
+.login-hint,
+.login-footnote {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.85rem;
+}
+
+.login-footnote {
+    margin: 0.85rem 0 0;
 }

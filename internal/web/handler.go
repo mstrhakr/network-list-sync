@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mstrhakr/network-list-sync/internal/auth"
 	"github.com/mstrhakr/network-list-sync/internal/clients"
 	"github.com/mstrhakr/network-list-sync/internal/scheduler"
 	"github.com/mstrhakr/network-list-sync/internal/store"
@@ -25,6 +26,7 @@ type Handler struct {
 	scheduler *scheduler.Scheduler
 	uiFS      fs.FS
 	uiTmpl    *template.Template
+	auth      *auth.Service
 }
 
 // NewHandler registers all API routes and the embedded UI file server.
@@ -40,8 +42,14 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 		uiFS:      uiFS,
 		uiTmpl:    uiTmpl,
 	}
+	if s != nil {
+		h.auth = auth.NewService(s)
+	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login", h.loginPage)
+	mux.HandleFunc("POST /login", h.loginSubmit)
+	mux.HandleFunc("POST /logout", h.logout)
 
 	mux.HandleFunc("GET /api/instances", h.listControllers)
 	mux.HandleFunc("POST /api/instances", h.createController)
@@ -70,7 +78,7 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 	mux.Handle("GET /static/", staticHandler)
 	mux.HandleFunc("GET /logo.png", h.serveLogo)
 
-	return loggingMiddleware(mux)
+	return loggingMiddleware(h.authMiddleware(mux))
 }
 
 func mustSubFS(root fs.FS, dir string) fs.FS {
@@ -82,8 +90,9 @@ func mustSubFS(root fs.FS, dir string) fs.FS {
 }
 
 func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
+	principal := principalFromContext(r.Context())
 	var buf bytes.Buffer
-	if err := h.uiTmpl.ExecuteTemplate(&buf, "index", nil); err != nil {
+	if err := h.uiTmpl.ExecuteTemplate(&buf, "index", map[string]any{"Principal": principal}); err != nil {
 		http.Error(w, "failed to render UI", http.StatusInternalServerError)
 		return
 	}

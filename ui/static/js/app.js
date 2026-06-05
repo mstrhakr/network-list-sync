@@ -1,4 +1,5 @@
 const API = '/api';
+const browserFetch = window.fetch.bind(window);
 let jobs = [];
 let controllers = [];
 const logDetailsMap = new Map();
@@ -28,6 +29,15 @@ let networkListNameCache = Object.create(null);
 let networkListsLoadedControllers = Object.create(null);
 let networkListFetchPromises = Object.create(null);
 let controllerProviderChangeBound = false;
+
+window.fetch = async function(input, init) {
+    const response = await browserFetch(input, init);
+    const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+    if (response.status === 401 && url.indexOf(API + '/') === 0) {
+        window.location.href = '/login';
+    }
+    return response;
+};
 
 const CONTROLLER_PROVIDER_UI = {
     unifi: {
@@ -261,6 +271,14 @@ async function init() {
     await Promise.all([loadJobs(), loadControllers(), checkHealth()]);
     setInterval(loadJobs, 30000);
     setInterval(checkHealth, 30000);
+}
+
+async function logout() {
+    try {
+        await browserFetch('/logout', { method: 'POST' });
+    } finally {
+        window.location.href = '/login';
+    }
 }
 
 async function checkHealth() {

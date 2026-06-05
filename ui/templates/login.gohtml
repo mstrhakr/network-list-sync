@@ -1,0 +1,56 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In - Network List Sync</title>
+    <link rel="icon" type="image/png" href="/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <main class="login-main">
+        <section class="login-card">
+            <div class="login-brand">
+                <img class="login-logo" src="/logo.png" alt="Application logo">
+                <div>
+                    <h1>Network List Sync</h1>
+                    <p>{{if .NeedsSetup}}Create the first administrator account{{else}}Sign in to continue{{end}}</p>
+                </div>
+            </div>
+
+            {{if .Error}}
+            <div class="login-error" role="alert">{{.Error}}</div>
+            {{end}}
+
+            <form method="post" action="/login" class="login-form" autocomplete="on">
+                <input type="hidden" name="provider" value="{{.ProviderID}}">
+
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input id="username" name="username" type="text" required minlength="3" maxlength="64" value="{{.Username}}" autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" required minlength="12" autocomplete="{{if .NeedsSetup}}new-password{{else}}current-password{{end}}">
+                </div>
+
+                {{if .NeedsSetup}}
+                <div class="form-group">
+                    <label for="password-confirm">Confirm Password</label>
+                    <input id="password-confirm" name="confirm_password" type="password" required minlength="12" autocomplete="new-password">
+                </div>
+                <p class="login-hint">First startup detected. This account becomes the initial admin user.</p>
+                {{end}}
+
+                <button type="submit" class="btn btn-primary login-submit">{{if .NeedsSetup}}Create Admin Account{{else}}Sign In{{end}}</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>
+{{end}}

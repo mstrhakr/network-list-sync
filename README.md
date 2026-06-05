@@ -20,6 +20,8 @@ It supports multiple endpoint providers in one deployment, currently:
 - Web UI for endpoint, DNS server, and sync job management
 - Multi-target jobs (one job can update multiple endpoint/list pairs)
 - Provider-aware endpoint model (UniFi and NPM side by side)
+- Built-in local authentication with persistent server-side sessions
+- First-start admin bootstrap (interactive in UI or via Docker environment)
 - Cron scheduling with manual run support
 - DNS preview before saving a job
 - Hostname plus literal IPv4 and IPv4 CIDR inputs
@@ -54,6 +56,23 @@ Common examples:
    - NPM: identity/account value used by your environment
 4. Existing target list IDs in each provider.
 5. Persistent storage for the data directory.
+
+## Authentication
+
+This application is protected by login.
+
+- First startup with no users: visiting `/login` shows an admin account creation form.
+- After setup: `/login` shows a standard sign-in form.
+- Sessions are server-side and stored in SQLite.
+
+### Docker Initial Admin Bootstrap
+
+To create the first admin account automatically on container startup, set both env vars:
+
+- `NLS_INITIAL_ADMIN_USERNAME`
+- `NLS_INITIAL_ADMIN_PASSWORD`
+
+If users already exist, these values are ignored.
 
 ## Quick Start
 
@@ -95,6 +114,8 @@ services:
       PUID: "99"
       PGID: "100"
       UMASK: "022"
+      NLS_INITIAL_ADMIN_USERNAME: "admin"
+      NLS_INITIAL_ADMIN_PASSWORD: "change-this-immediately"
     volumes:
       - /mnt/user/appdata/network-list-sync:/data
 ```
@@ -122,6 +143,13 @@ go build -o network-list-sync .
 | -verbose | false | Enable verbose logs |
 | -log-file | sync.log | Log file path (empty disables file logging) |
 | -version | false | Print build version metadata and exit |
+
+Environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `NLS_INITIAL_ADMIN_USERNAME` | Optional first-run admin username (must be paired with password) |
+| `NLS_INITIAL_ADMIN_PASSWORD` | Optional first-run admin password (must be paired with username) |
 
 Example:
 
@@ -163,6 +191,8 @@ https://www.cloudflare.com/ips-v4
 4. Keep endpoint credentials scoped to minimum required permissions.
 
 ## API Endpoints
+
+All `/api/*` endpoints require an authenticated session.
 
 ### Endpoints/Instances
 
@@ -215,6 +245,13 @@ https://www.cloudflare.com/ips-v4
 - Maintainer guide: [docs/development.md](docs/development.md)
 - Migration notes: [docs/generic-migration-plan.md](docs/generic-migration-plan.md)
 - UniFi schema reference: [docs/reference/unifi-network-10.1.85.json](docs/reference/unifi-network-10.1.85.json)
+
+## OIDC Roadmap
+
+The auth layer includes provider abstractions for both password and OIDC flows.
+
+- Current provider: local password (`local`)
+- Planned: OIDC providers can be registered without replacing the existing session model
 
 ## License
 

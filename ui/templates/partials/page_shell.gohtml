@@ -9,18 +9,7 @@
             </div>
         </div>
         <div class="header-right">
-            <div class="header-actions">
-                <button class="btn btn-light" onclick="showDNSModal()">DNS Servers</button>
-                <button class="btn btn-light" onclick="showControllerModal()">Endpoints</button>
-                <button class="btn btn-light" onclick="showJobModal()">+ New Sync Job</button>
-            </div>
-            <button class="btn btn-light header-mobile-menu-btn" type="button" onclick="toggleHeaderMobileMenu(event)">Menu</button>
-            <label class="theme-toggle" title="Toggle theme">
-                <input type="checkbox" id="theme-toggle-checkbox">
-                <div class="theme-toggle-slider">
-                    <div class="theme-toggle-icon"></div>
-                </div>
-            </label>
+            <button class="btn btn-light header-mobile-menu-btn" type="button" onclick="toggleHeaderMobileMenu(event)">&#9776; Menu</button>
         </div>
     </div>
 </header>
@@ -35,7 +24,10 @@
             <button class="view-toggle-btn" type="button" data-view="cards" onclick="setJobsViewMode('cards')">Cards</button>
             <button class="view-toggle-btn" type="button" data-view="table" onclick="setJobsViewMode('table')">Table</button>
         </div>
-        <div id="jobsTableCustomizerToolbar" class="hidden"></div>
+        <div class="jobs-view-actions">
+            <div id="jobsTableCustomizerToolbar" class="hidden"></div>
+            <button class="btn btn-small btn-primary" type="button" onclick="showJobModal()">+ New Sync Job</button>
+        </div>
     </div>
     <div id="jobList" class="job-grid"></div>
     <div id="jobsTableWrap" class="jobs-table-wrap hidden">

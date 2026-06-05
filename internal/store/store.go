@@ -74,6 +74,17 @@ type DNSServer struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// AppUser represents a local or federated app login identity.
+type AppUser struct {
+	ID           int64  `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"-"`
+	AuthProvider string `json:"auth_provider"`
+	IsAdmin      bool   `json:"is_admin"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
 // Store provides SQLite-backed persistence for sync jobs and run logs.
 type Store struct {
 	db *sql.DB
@@ -183,6 +194,26 @@ func (s *Store) migrate() error {
 		PRIMARY KEY (job_id, ip),
 		FOREIGN KEY (job_id) REFERENCES sync_jobs(id) ON DELETE CASCADE
 	)`)
+	// App auth identities and server-side sessions.
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS app_users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		auth_provider TEXT NOT NULL DEFAULT 'local',
+		is_admin INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS app_sessions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		token_hash TEXT NOT NULL UNIQUE,
+		expires_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		last_seen_at TEXT NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
+	)`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_sessions_expires_at ON app_sessions(expires_at)`)
 	// Seed the well-known public resolvers on first run.
 	var dnsCount int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM dns_servers`).Scan(&dnsCount); err == nil && dnsCount == 0 {
@@ -712,5 +743,84 @@ func (s *Store) DeleteExpiredObservedIPs(jobID int64, before string) error {
 // DeleteObservedIPs removes all cached observed IPs for a job.
 func (s *Store) DeleteObservedIPs(jobID int64) error {
 	_, err := s.db.Exec(`DELETE FROM job_observed_ips WHERE job_id = ?`, jobID)
+	return err
+}
+
+// ---------- App Auth ----------
+
+func (s *Store) CountUsers() (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM app_users`).Scan(&count)
+	return count, err
+}
+
+func (s *Store) CreateUser(u *AppUser) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	provider := strings.TrimSpace(strings.ToLower(u.AuthProvider))
+	if provider == "" {
+		provider = "local"
+	}
+	result, err := s.db.Exec(`
+		INSERT INTO app_users (username, password_hash, auth_provider, is_admin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		strings.TrimSpace(u.Username), u.PasswordHash, provider, boolToInt(u.IsAdmin), now, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (s *Store) GetUserByUsername(username string) (*AppUser, error) {
+	var u AppUser
+	var isAdmin int
+	err := s.db.QueryRow(`
+		SELECT id, username, password_hash, auth_provider, is_admin, created_at, updated_at
+		FROM app_users
+		WHERE username = ?`, strings.TrimSpace(username)).Scan(
+		&u.ID, &u.Username, &u.PasswordHash, &u.AuthProvider, &isAdmin, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	u.IsAdmin = isAdmin != 0
+	return &u, nil
+}
+
+func (s *Store) GetUserBySessionTokenHash(tokenHash string, now string) (*AppUser, error) {
+	var u AppUser
+	var isAdmin int
+	err := s.db.QueryRow(`
+		SELECT u.id, u.username, u.password_hash, u.auth_provider, u.is_admin, u.created_at, u.updated_at
+		FROM app_sessions s
+		JOIN app_users u ON u.id = s.user_id
+		WHERE s.token_hash = ? AND s.expires_at > ?`, tokenHash, now).Scan(
+		&u.ID, &u.Username, &u.PasswordHash, &u.AuthProvider, &isAdmin, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	u.IsAdmin = isAdmin != 0
+	return &u, nil
+}
+
+func (s *Store) CreateSession(userID int64, tokenHash, expiresAt string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(`
+		INSERT INTO app_sessions (user_id, token_hash, expires_at, created_at, last_seen_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		userID, tokenHash, expiresAt, now, now)
+	return err
+}
+
+func (s *Store) TouchSession(tokenHash, seenAt string) error {
+	_, err := s.db.Exec(`UPDATE app_sessions SET last_seen_at = ? WHERE token_hash = ?`, seenAt, tokenHash)
+	return err
+}
+
+func (s *Store) DeleteSessionByTokenHash(tokenHash string) error {
+	_, err := s.db.Exec(`DELETE FROM app_sessions WHERE token_hash = ?`, tokenHash)
+	return err
+}
+
+func (s *Store) DeleteExpiredSessions(now string) error {
+	_, err := s.db.Exec(`DELETE FROM app_sessions WHERE expires_at <= ?`, now)
 	return err
 }
