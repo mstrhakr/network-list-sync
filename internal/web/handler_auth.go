@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mstrhakr/network-list-sync/internal/auth"
+	appLog "github.com/mstrhakr/network-list-sync/internal/logging"
 )
 
 type authContextKey string
@@ -138,6 +139,12 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 			status := http.StatusUnauthorized
 			if !errors.Is(err, auth.ErrInvalidCredentials) {
 				status = http.StatusBadRequest
+			} else {
+				appLog.GetManager().Warn("Failed login attempt",
+					"username", username,
+					"remote_addr", r.RemoteAddr,
+					"path", r.URL.Path,
+				)
 			}
 			h.renderLoginPage(w, loginViewData{Error: err.Error(), Username: username, ProviderID: provider}, status)
 			return
