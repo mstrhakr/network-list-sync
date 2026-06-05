@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mstrhakr/network-list-sync/internal/unifi"
+	"github.com/mstrhakr/network-list-sync/internal/clients"
 )
 
 func TestNew_ReturnsSyncer(t *testing.T) {
@@ -50,7 +50,7 @@ func TestDiffFormatAndItemConversion(t *testing.T) {
 		t.Fatalf("IPsToItems types = %+v", items)
 	}
 
-	extraItems := append(items, unifi.TrafficMatchItem{Type: "PORT_NUMBER", Value: "443"})
+	extraItems := append(items, clients.TrafficMatchItem{Type: "PORT_NUMBER", Value: "443"})
 	extracted := ExtractIPsFromItems(extraItems)
 	if !reflect.DeepEqual(extracted, newIPs) {
 		t.Fatalf("ExtractIPsFromItems = %v, want %v", extracted, newIPs)

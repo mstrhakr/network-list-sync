@@ -2,7 +2,6 @@ package web
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -10,11 +9,10 @@ import (
 	"strings"
 	"time"
 
-	npmclient "github.com/mstrhakr/network-list-sync/internal/npm"
+	"github.com/mstrhakr/network-list-sync/internal/clients"
 	"github.com/mstrhakr/network-list-sync/internal/scheduler"
 	"github.com/mstrhakr/network-list-sync/internal/store"
 	"github.com/mstrhakr/network-list-sync/internal/syncer"
-	"github.com/mstrhakr/network-list-sync/internal/unifi"
 )
 
 // Handler wires HTTP routes to the store, syncer, and scheduler.
@@ -288,25 +286,26 @@ func (h *Handler) testController(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "url and api_key are required")
 		return
 	}
-	provider := strings.ToLower(strings.TrimSpace(req.Provider))
-	if provider == "" {
-		provider = "unifi"
+	ctrl := &store.Controller{
+		Provider:      req.Provider,
+		URL:           req.URL,
+		Site:          req.Site,
+		APIKey:        req.APIKey,
+		SkipTLSVerify: req.SkipTLSVerify,
 	}
-	lists, err := h.fetchNetworkListsForProvider(provider, req.URL, req.Site, req.APIKey, req.SkipTLSVerify)
+	p, err := clients.New(ctrl)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	listCount := 0
-	switch typed := lists.(type) {
-	case []unifi.NetworkList:
-		listCount = len(typed)
-	case []npmclient.NetworkList:
-		listCount = len(typed)
+	lists, err := p.ListNetworkLists()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":            true,
-		"network_lists": listCount,
+		"network_lists": len(lists),
 	})
 }
 
@@ -321,11 +320,12 @@ func (h *Handler) listNetworkLists(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "endpoint not found")
 		return
 	}
-	provider := strings.ToLower(strings.TrimSpace(ctrl.Provider))
-	if provider == "" {
-		provider = "unifi"
+	p, err := clients.New(ctrl)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
 	}
-	lists, err := h.fetchNetworkListsForProvider(provider, ctrl.URL, ctrl.Site, ctrl.APIKey, ctrl.SkipTLSVerify)
+	lists, err := p.ListNetworkLists()
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -481,11 +481,12 @@ func (h *Handler) getJobNetworkList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "endpoint not found")
 		return
 	}
-	provider := strings.ToLower(strings.TrimSpace(ctrl.Provider))
-	if provider == "" {
-		provider = "unifi"
+	p, err := clients.New(ctrl)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
 	}
-	networkList, err := h.getNetworkListForProvider(provider, ctrl.URL, ctrl.Site, ctrl.APIKey, ctrl.SkipTLSVerify, selectedTarget.NetworkListID)
+	networkList, err := p.GetNetworkList(selectedTarget.NetworkListID)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -662,54 +663,6 @@ func (h *Handler) deleteDNSServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handler) fetchNetworkListsForProvider(provider, url, site, apiKey string, skipTLS bool) (any, error) {
-	if provider == "npm" {
-		client, err := npmclient.NewClient(url, site, apiKey, skipTLS)
-		if err != nil {
-			return nil, fmt.Errorf("NPM credentials invalid: %w", err)
-		}
-		lists, err := client.ListNetworkLists()
-		if err != nil {
-			return nil, fmt.Errorf("fetch access lists: %w", err)
-		}
-		return lists, nil
-	}
-
-	client, err := unifi.NewClient(url, site, apiKey, skipTLS)
-	if err != nil {
-		return nil, fmt.Errorf("UniFi API key invalid: %w", err)
-	}
-	lists, err := client.ListNetworkLists()
-	if err != nil {
-		return nil, fmt.Errorf("fetch network lists: %w", err)
-	}
-	return lists, nil
-}
-
-func (h *Handler) getNetworkListForProvider(provider, url, site, apiKey string, skipTLS bool, listID string) (any, error) {
-	if provider == "npm" {
-		client, err := npmclient.NewClient(url, site, apiKey, skipTLS)
-		if err != nil {
-			return nil, fmt.Errorf("NPM credentials invalid: %w", err)
-		}
-		nl, err := client.GetNetworkList(listID)
-		if err != nil {
-			return nil, fmt.Errorf("fetch access list: %w", err)
-		}
-		return nl, nil
-	}
-
-	client, err := unifi.NewClient(url, site, apiKey, skipTLS)
-	if err != nil {
-		return nil, fmt.Errorf("UniFi API key invalid: %w", err)
-	}
-	nl, err := client.GetNetworkList(listID)
-	if err != nil {
-		return nil, fmt.Errorf("fetch network list: %w", err)
-	}
-	return nl, nil
 }
 
 func parseID(r *http.Request) (int64, error) {

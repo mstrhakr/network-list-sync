@@ -9,9 +9,8 @@ import (
 	"sync"
 	"time"
 
-	npmclient "github.com/mstrhakr/network-list-sync/internal/npm"
+	"github.com/mstrhakr/network-list-sync/internal/clients"
 	"github.com/mstrhakr/network-list-sync/internal/store"
-	"github.com/mstrhakr/network-list-sync/internal/unifi"
 )
 
 // SyncResult captures the outcome of a single sync execution.
@@ -22,7 +21,7 @@ type SyncResult struct {
 	Details     string `json:"details"`
 }
 
-// Syncer executes DNS-to-UniFi firewall group sync operations.
+// Syncer executes DNS-to-IP-list sync operations across providers.
 type Syncer struct {
 	running sync.Map // prevents concurrent runs of the same job
 }
@@ -127,21 +126,28 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 			continue
 		}
 
-		provider := strings.ToLower(strings.TrimSpace(ctrl.Provider))
-		if provider == "" {
-			provider = "unifi"
+		providerLabel := strings.ToLower(strings.TrimSpace(ctrl.Provider))
+		if providerLabel == "" {
+			providerLabel = "unifi"
 		}
 
-		result, err := s.syncTarget(provider, ctrl, target.NetworkListID, newIPs, hostIPs)
+		p, err := clients.New(ctrl)
 		if err != nil {
 			failed++
-			detailParts = append(detailParts, fmt.Sprintf("[%s:%s @ %s]\nerror: %v", provider, target.NetworkListID, ctrl.Name, err))
+			detailParts = append(detailParts, fmt.Sprintf("[%s:%s @ %s]\nerror: create provider: %v", providerLabel, target.NetworkListID, ctrl.Name, err))
+			continue
+		}
+
+		result, err := s.syncTarget(p, target.NetworkListID, newIPs, hostIPs)
+		if err != nil {
+			failed++
+			detailParts = append(detailParts, fmt.Sprintf("[%s:%s @ %s]\nerror: %v", providerLabel, target.NetworkListID, ctrl.Name, err))
 			continue
 		}
 
 		succeeded++
 		totalChanges += result.changes
-		detailParts = append(detailParts, fmt.Sprintf("[%s:%s @ %s]\n%s", provider, target.NetworkListID, ctrl.Name, result.details))
+		detailParts = append(detailParts, fmt.Sprintf("[%s:%s @ %s]\n%s", providerLabel, target.NetworkListID, ctrl.Name, result.details))
 	}
 
 	status := "success"
@@ -163,45 +169,19 @@ type targetSyncResult struct {
 	details string
 }
 
-func (s *Syncer) syncTarget(provider string, ctrl *store.Controller, listID string, newIPs []string, hostIPs map[string]string) (targetSyncResult, error) {
-	if provider == "npm" {
-		client, err := npmclient.NewClient(ctrl.URL, ctrl.Site, ctrl.APIKey, ctrl.SkipTLSVerify)
-		if err != nil {
-			return targetSyncResult{}, fmt.Errorf("NPM API client: %w", err)
-		}
-		nl, err := client.GetNetworkList(listID)
-		if err != nil {
-			return targetSyncResult{}, fmt.Errorf("get access list: %w", err)
-		}
-		oldIPs := ExtractNPMIPsFromItems(nl.Items)
-		sort.Strings(oldIPs)
-		added, removed, kept := DiffIPs(oldIPs, newIPs)
-		if len(added) == 0 && len(removed) == 0 {
-			return targetSyncResult{details: fmt.Sprintf("No changes needed (%d IPs match)", len(kept))}, nil
-		}
-		nl.Items = IPsToNPMItems(newIPs)
-		if err := client.UpdateNetworkList(nl); err != nil {
-			return targetSyncResult{}, fmt.Errorf("update access list: %w", err)
-		}
-		return targetSyncResult{changes: len(added) + len(removed), details: FormatDiff(added, removed, kept, hostIPs)}, nil
-	}
-
-	client, err := unifi.NewClient(ctrl.URL, ctrl.Site, ctrl.APIKey, ctrl.SkipTLSVerify)
-	if err != nil {
-		return targetSyncResult{}, fmt.Errorf("UniFi API client: %w", err)
-	}
-	nl, err := client.GetNetworkList(listID)
+func (s *Syncer) syncTarget(p clients.Provider, listID string, newIPs []string, hostIPs map[string]string) (targetSyncResult, error) {
+	nl, err := p.GetNetworkList(listID)
 	if err != nil {
 		return targetSyncResult{}, fmt.Errorf("get network list: %w", err)
 	}
-	oldIPs := ExtractUniFiIPsFromItems(nl.Items)
+	oldIPs := ExtractIPsFromItems(nl.Items)
 	sort.Strings(oldIPs)
 	added, removed, kept := DiffIPs(oldIPs, newIPs)
 	if len(added) == 0 && len(removed) == 0 {
 		return targetSyncResult{details: fmt.Sprintf("No changes needed (%d IPs match)", len(kept))}, nil
 	}
-	nl.Items = IPsToUniFiItems(newIPs)
-	if err := client.UpdateNetworkList(nl); err != nil {
+	nl.Items = IPsToItems(newIPs)
+	if err := p.UpdateNetworkList(nl); err != nil {
 		return targetSyncResult{}, fmt.Errorf("update network list: %w", err)
 	}
 	return targetSyncResult{changes: len(added) + len(removed), details: FormatDiff(added, removed, kept, hostIPs)}, nil
@@ -277,8 +257,8 @@ func FormatDiff(added, removed, kept []string, hostIPs map[string]string) string
 	return b.String()
 }
 
-// ExtractIPsFromItems extracts IP address strings from traffic matching list items.
-func ExtractUniFiIPsFromItems(items []unifi.TrafficMatchItem) []string {
+// ExtractIPsFromItems extracts IP address and CIDR strings from a traffic matching list.
+func ExtractIPsFromItems(items []clients.TrafficMatchItem) []string {
 	var ips []string
 	for _, item := range items {
 		switch item.Type {
@@ -290,51 +270,16 @@ func ExtractUniFiIPsFromItems(items []unifi.TrafficMatchItem) []string {
 }
 
 // IPsToItems converts a sorted list of IPs into traffic matching list items.
-func IPsToUniFiItems(ips []string) []unifi.TrafficMatchItem {
-	items := make([]unifi.TrafficMatchItem, len(ips))
+func IPsToItems(ips []string) []clients.TrafficMatchItem {
+	items := make([]clients.TrafficMatchItem, len(ips))
 	for i, ip := range ips {
 		if strings.Contains(ip, "/") {
-			items[i] = unifi.TrafficMatchItem{Type: "SUBNET", Value: ip}
+			items[i] = clients.TrafficMatchItem{Type: "SUBNET", Value: ip}
 		} else {
-			items[i] = unifi.TrafficMatchItem{Type: "IP_ADDRESS", Value: ip}
+			items[i] = clients.TrafficMatchItem{Type: "IP_ADDRESS", Value: ip}
 		}
 	}
 	return items
-}
-
-// ExtractNPMIPsFromItems extracts IP address strings from NPM access-list items.
-func ExtractNPMIPsFromItems(items []npmclient.TrafficMatchItem) []string {
-	var ips []string
-	for _, item := range items {
-		switch item.Type {
-		case "IP_ADDRESS", "SUBNET":
-			ips = append(ips, item.Value)
-		}
-	}
-	return ips
-}
-
-// IPsToNPMItems converts sorted IPs into NPM access-list items.
-func IPsToNPMItems(ips []string) []npmclient.TrafficMatchItem {
-	items := make([]npmclient.TrafficMatchItem, len(ips))
-	for i, ip := range ips {
-		if strings.Contains(ip, "/") {
-			items[i] = npmclient.TrafficMatchItem{Type: "SUBNET", Value: ip}
-		} else {
-			items[i] = npmclient.TrafficMatchItem{Type: "IP_ADDRESS", Value: ip}
-		}
-	}
-	return items
-}
-
-// ExtractIPsFromItems is kept for backward compatibility and maps to UniFi item extraction.
-func ExtractIPsFromItems(items []unifi.TrafficMatchItem) []string {
-	return ExtractUniFiIPsFromItems(items)
-}
-
-// IPsToItems is kept for backward compatibility and maps to UniFi item conversion.
-func IPsToItems(ips []string) []unifi.TrafficMatchItem {
-	return IPsToUniFiItems(ips)
 }
 
 func mergeResolvedIPs(observed, current map[string]string) map[string]string {
