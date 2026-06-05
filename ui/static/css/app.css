@@ -320,6 +320,39 @@ main {
 
 .modal-wide { max-width: 900px; }
 
+.modal-endpoints {
+    width: 96vw;
+    max-width: 1240px;
+}
+
+.modal-fixed-shell {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-fixed-shell .modal-header {
+    flex: 0 0 auto;
+}
+
+.modal-fixed-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.modal-table-scroll {
+    overflow: auto;
+    max-height: min(52vh, 420px);
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+    .modal-table-scroll {
+        max-height: 55vh;
+    }
+}
+
 .modal-header {
     padding: 1.25rem 1.5rem;
     border-bottom: 1px solid var(--border);
@@ -796,7 +829,15 @@ form { padding: 1.5rem; }
 @media (max-width: 768px) {
     .job-grid { grid-template-columns: 1fr; }
     .form-row { grid-template-columns: 1fr; }
-    .modal-content { width: 95%; }
+    .modal-content {
+        width: 92%;
+        max-width: 92%;
+        max-height: 90vh;
+    }
+    .modal-content.modal-endpoints {
+        width: 92%;
+        max-width: 92%;
+    }
     header { padding: 0 0.7rem; }
     .header-content {
         min-height: 58px;

@@ -1,12 +1,12 @@
 {{define "dns-modal"}}
 <div id="dnsModal" class="modal hidden">
     <div class="modal-overlay" onclick="hideDNSModal()"></div>
-    <div class="modal-content modal-wide">
+    <div class="modal-content modal-wide modal-fixed-shell">
         <div class="modal-header">
             <h2>Manage DNS Servers</h2>
             <button class="modal-close" onclick="hideDNSModal()">&times;</button>
         </div>
-        <div style="padding:1rem;">
+        <div class="modal-fixed-body" style="padding:1rem;">
             <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:1rem;">All enabled servers in this list are queried for every sync and resolve preview. The well-known public resolvers are pre-configured — remove or disable any you don't want. Add private or internal DNS servers as needed.</p>
             <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
                 <button class="btn btn-primary btn-small" onclick="showDNSServerForm()">+ Add DNS Server</button>
@@ -37,10 +37,12 @@
                     </div>
                 </form>
             </div>
-            <table class="logs-table" id="dnsTable">
-                <thead><tr><th>Label</th><th>Address</th><th>Status</th><th>Actions</th></tr></thead>
-                <tbody id="dnsTableBody"></tbody>
-            </table>
+            <div class="jobs-table-wrap modal-table-scroll">
+                <table class="logs-table" id="dnsTable">
+                    <thead><tr><th>Label</th><th>Address</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody id="dnsTableBody"></tbody>
+                </table>
+            </div>
             <p id="noDNSMsg" class="empty-text hidden">No custom DNS servers. Built-in public resolvers (Cloudflare, Google, Quad9, OpenDNS) are always used.</p>
         </div>
     </div>

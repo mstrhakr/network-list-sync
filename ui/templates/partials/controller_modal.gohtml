@@ -1,12 +1,12 @@
 {{define "controller-modal"}}
 <div id="controllerModal" class="modal hidden">
     <div class="modal-overlay" onclick="hideControllerModal()"></div>
-    <div class="modal-content modal-wide">
+    <div class="modal-content modal-wide modal-endpoints modal-fixed-shell">
         <div class="modal-header">
             <h2>Manage Endpoints</h2>
             <button class="modal-close" onclick="hideControllerModal()">&times;</button>
         </div>
-        <div style="padding:1rem;">
+        <div class="modal-fixed-body" style="padding:1rem;">
             <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
                 <button class="btn btn-primary btn-small" onclick="showControllerForm()">+ Add Endpoint</button>
             </div>
@@ -53,10 +53,12 @@
                     </div>
                 </form>
             </div>
-            <table class="logs-table" id="controllerTable">
-                <thead><tr><th>Name</th><th>Provider</th><th>URL</th><th>Site/Identity</th><th>API Key/Secret</th><th>Skip TLS</th><th>Actions</th></tr></thead>
-                <tbody id="controllerTableBody"></tbody>
-            </table>
+            <div class="jobs-table-wrap modal-table-scroll">
+                <table class="logs-table" id="controllerTable">
+                    <thead><tr><th>Name</th><th>Provider</th><th>URL</th><th>Site/Identity</th><th>API Key/Secret</th><th>Skip TLS</th><th>Actions</th></tr></thead>
+                    <tbody id="controllerTableBody"></tbody>
+                </table>
+            </div>
             <p id="noControllersMsg" class="empty-text hidden">No endpoints saved yet. Add one above.</p>
         </div>
     </div>
