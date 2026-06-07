@@ -17,7 +17,9 @@
 <main>
     <div id="dnsBanner" class="hidden" style="background:var(--error-bg);border-left:4px solid var(--error);color:var(--error);padding:0.85rem 1.25rem;border-radius:var(--radius);margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;">
         <span id="dnsBannerMsg"></span>
+        {{if and .Principal .Principal.IsAdmin}}
         <button class="btn btn-small btn-danger" onclick="showDNSModal()">Configure DNS Servers</button>
+        {{end}}
     </div>
     <div class="jobs-view-toolbar" id="jobsViewToolbar">
         <div class="view-toggle" role="group" aria-label="Jobs view">
@@ -26,7 +28,9 @@
         </div>
         <div class="jobs-view-actions">
             <div id="jobsTableCustomizerToolbar" class="hidden"></div>
+            {{if and .Principal .Principal.IsAdmin}}
             <button class="btn btn-small btn-primary" type="button" onclick="showJobModal()">+ New Sync Job</button>
+            {{end}}
         </div>
     </div>
     <div id="jobList" class="job-grid"></div>
@@ -38,8 +42,12 @@
     </div>
     <div id="emptyState" class="empty-state hidden">
         <h2>No sync jobs configured</h2>
+        {{if and .Principal .Principal.IsAdmin}}
         <p>Create a sync job to automatically manage endpoint target lists from DNS hostnames.</p>
         <button class="btn btn-primary" onclick="showJobModal()">+ Create First Job</button>
+        {{else}}
+        <p>No sync jobs are available yet. Ask an admin to create one.</p>
+        {{end}}
     </div>
 </main>
 {{end}}

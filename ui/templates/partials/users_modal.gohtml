@@ -1,0 +1,55 @@
+{{define "users-modal"}}
+<div id="usersModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideUsersModal()"></div>
+    <div class="modal-content modal-wide modal-fixed-shell">
+        <div class="modal-header">
+            <h2>Manage Users</h2>
+            <button class="modal-close" onclick="hideUsersModal()">&times;</button>
+        </div>
+        <div class="modal-fixed-body" style="padding:1rem;">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+                <button class="btn btn-primary btn-small" onclick="showUserForm()">+ Add User</button>
+            </div>
+            <div class="jobs-table-wrap modal-table-scroll">
+                <table class="logs-table" id="usersTable">
+                    <thead><tr><th>Username</th><th>Role</th><th>Provider</th><th>Updated</th><th>Actions</th></tr></thead>
+                    <tbody id="usersTableBody"></tbody>
+                </table>
+            </div>
+            <p id="noUsersMsg" class="empty-text hidden">No users found.</p>
+        </div>
+    </div>
+</div>
+
+<div id="userEditorModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideUserForm()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="userEditorTitle">Add User</h2>
+            <button class="modal-close" onclick="hideUserForm()">&times;</button>
+        </div>
+        <form id="userForm" onsubmit="saveUser(event)" style="padding:1rem;">
+            <input type="hidden" id="userId">
+            <div class="form-group">
+                <label for="userUsername">Username</label>
+                <input type="text" id="userUsername" required placeholder="operator-1">
+            </div>
+            <div class="form-group">
+                <label for="userPassword">Password</label>
+                <input type="password" id="userPassword" placeholder="At least 12 characters">
+                <span id="userPasswordHint" class="hint">Required for new users.</span>
+            </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                    <input type="checkbox" id="userIsAdmin">
+                    Administrator
+                </label>
+            </div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button type="button" class="btn btn-secondary btn-small" onclick="hideUserForm()">Cancel</button>
+                <button type="submit" class="btn btn-primary btn-small">Save User</button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

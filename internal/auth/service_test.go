@@ -161,3 +161,63 @@ func TestChangePasswordKeepsCurrentSessionAndRevokesOthers(t *testing.T) {
 		t.Fatalf("ChangePassword(wrong current) error = nil, want error")
 	}
 }
+
+func TestManageUsersAndAdminSafeguards(t *testing.T) {
+	t.Parallel()
+
+	s, err := store.New(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatalf("store.New() error = %v", err)
+	}
+	defer s.Close()
+
+	svc := NewService(s)
+	admin, err := svc.CreateInitialAdmin(context.Background(), "admin", "super-secure-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAdmin() error = %v", err)
+	}
+
+	user, err := svc.CreateUser(context.Background(), "operator", "operator-secure-pass", false)
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	if user.ID == 0 {
+		t.Fatalf("CreateUser() returned invalid ID")
+	}
+
+	if _, err := svc.CreateUser(context.Background(), "operator", "another-secure-pass", false); err == nil {
+		t.Fatalf("CreateUser(duplicate username) error = nil, want error")
+	}
+
+	updated, err := svc.UpdateUser(context.Background(), user.ID, "operator-renamed", true, "")
+	if err != nil {
+		t.Fatalf("UpdateUser() error = %v", err)
+	}
+	if !updated.IsAdmin {
+		t.Fatalf("UpdateUser() IsAdmin = false, want true")
+	}
+
+	if _, err := svc.UpdateUser(context.Background(), admin.UserID, "admin", false, ""); err != nil {
+		t.Fatalf("UpdateUser(demote sole admin with second admin present) error = %v", err)
+	}
+
+	if err := svc.DeleteUser(context.Background(), admin.UserID, updated.ID); err == nil {
+		t.Fatalf("DeleteUser(last admin) error = nil, want error")
+	}
+
+	if _, err := svc.UpdateUser(context.Background(), admin.UserID, "admin", true, ""); err != nil {
+		t.Fatalf("UpdateUser(re-promote admin) error = %v", err)
+	}
+
+	if err := svc.DeleteUser(context.Background(), admin.UserID, admin.UserID); err == nil {
+		t.Fatalf("DeleteUser(self) error = nil, want error")
+	}
+
+	if err := svc.DeleteUser(context.Background(), admin.UserID, updated.ID); err != nil {
+		t.Fatalf("DeleteUser(operator) error = %v", err)
+	}
+
+	if _, err := svc.UpdateUser(context.Background(), admin.UserID, "admin", false, ""); err == nil {
+		t.Fatalf("UpdateUser(demote last admin) error = nil, want error")
+	}
+}

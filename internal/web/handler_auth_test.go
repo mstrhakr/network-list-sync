@@ -7,11 +7,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/mstrhakr/network-list-sync/internal/store"
+	"github.com/mstrhakr/network-list-sync/internal/syncer"
 )
 
 func TestAuthRedirectThenSetupLogin(t *testing.T) {
@@ -192,5 +194,123 @@ func TestChangePasswordAPI(t *testing.T) {
 	h.ServeHTTP(newRR, newReq)
 	if newRR.Code != http.StatusSeeOther {
 		t.Fatalf("POST /login new password status = %d, want %d", newRR.Code, http.StatusSeeOther)
+	}
+}
+
+func TestAdminUserManagementAndUserPermissions(t *testing.T) {
+	t.Parallel()
+
+	s, err := store.New(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatalf("store.New() error = %v", err)
+	}
+	defer s.Close()
+
+	ctrlID, err := s.CreateController(&store.Controller{
+		Name:          "main",
+		URL:           "https://unifi.local",
+		APIKey:        "secret",
+		Site:          "default",
+		SkipTLSVerify: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateController() error = %v", err)
+	}
+	jobID, err := s.CreateJob(&store.SyncJob{
+		Name:          "job-1",
+		ControllerID:  ctrlID,
+		NetworkListID: "nl-1",
+		Hostnames:     "example.com",
+		Schedule:      "",
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	uiFS := fstest.MapFS{
+		"templates/index.gohtml":          {Data: []byte(`{{define "index"}}<html><body>{{template "shell" .}}</body></html>{{end}}`)},
+		"templates/login.gohtml":          {Data: []byte(`{{define "login"}}<html><body>{{if .Error}}ERR:{{.Error}}{{end}}{{if .NeedsSetup}}SETUP{{else}}LOGIN{{end}}</body></html>{{end}}`)},
+		"templates/partials/shell.gohtml": {Data: []byte(`{{define "shell"}}hello{{end}}`)},
+		"static/css/app.css":              {Data: []byte("body{}")},
+		"logo.png":                        {Data: []byte("png")},
+	}
+
+	h := NewHandler(s, syncer.New(), nil, uiFS)
+
+	adminSetup := url.Values{}
+	adminSetup.Set("username", "admin")
+	adminSetup.Set("password", "super-secure-pass")
+	adminSetup.Set("confirm_password", "super-secure-pass")
+	adminSetup.Set("provider", "local")
+
+	setupReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(adminSetup.Encode()))
+	setupReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	setupRR := httptest.NewRecorder()
+	h.ServeHTTP(setupRR, setupReq)
+	if setupRR.Code != http.StatusSeeOther {
+		t.Fatalf("setup POST /login status = %d, want %d", setupRR.Code, http.StatusSeeOther)
+	}
+	adminCookie := setupRR.Result().Cookies()[0]
+
+	createUserPayload, _ := json.Marshal(map[string]any{
+		"username": "operator",
+		"password": "operator-secure-pass",
+		"is_admin": false,
+	})
+	createUserReq := httptest.NewRequest(http.MethodPost, "/api/users", bytes.NewReader(createUserPayload))
+	createUserReq.Header.Set("Content-Type", "application/json")
+	createUserReq.AddCookie(adminCookie)
+	createUserRR := httptest.NewRecorder()
+	h.ServeHTTP(createUserRR, createUserReq)
+	if createUserRR.Code != http.StatusCreated {
+		t.Fatalf("POST /api/users status = %d, want %d body=%s", createUserRR.Code, http.StatusCreated, createUserRR.Body.String())
+	}
+
+	userLogin := url.Values{}
+	userLogin.Set("username", "operator")
+	userLogin.Set("password", "operator-secure-pass")
+	userLogin.Set("provider", "local")
+	userLoginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(userLogin.Encode()))
+	userLoginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	userLoginRR := httptest.NewRecorder()
+	h.ServeHTTP(userLoginRR, userLoginReq)
+	if userLoginRR.Code != http.StatusSeeOther {
+		t.Fatalf("operator POST /login status = %d, want %d body=%s", userLoginRR.Code, http.StatusSeeOther, userLoginRR.Body.String())
+	}
+	userCookie := userLoginRR.Result().Cookies()[0]
+
+	runReq := httptest.NewRequest(http.MethodPost, "/api/jobs/"+strconv.FormatInt(jobID, 10)+"/run", nil)
+	runReq.AddCookie(userCookie)
+	runRR := httptest.NewRecorder()
+	h.ServeHTTP(runRR, runReq)
+	if runRR.Code != http.StatusAccepted {
+		t.Fatalf("POST /api/jobs/{id}/run status = %d, want %d body=%s", runRR.Code, http.StatusAccepted, runRR.Body.String())
+	}
+
+	createJobReq := httptest.NewRequest(http.MethodPost, "/api/jobs", bytes.NewReader([]byte(`{"name":"x","hostnames":"x"}`)))
+	createJobReq.Header.Set("Content-Type", "application/json")
+	createJobReq.AddCookie(userCookie)
+	createJobRR := httptest.NewRecorder()
+	h.ServeHTTP(createJobRR, createJobReq)
+	if createJobRR.Code != http.StatusForbidden {
+		t.Fatalf("POST /api/jobs as user status = %d, want %d body=%s", createJobRR.Code, http.StatusForbidden, createJobRR.Body.String())
+	}
+
+	instancesReq := httptest.NewRequest(http.MethodPost, "/api/instances", bytes.NewReader([]byte(`{"name":"x"}`)))
+	instancesReq.Header.Set("Content-Type", "application/json")
+	instancesReq.AddCookie(userCookie)
+	instancesRR := httptest.NewRecorder()
+	h.ServeHTTP(instancesRR, instancesReq)
+	if instancesRR.Code != http.StatusForbidden {
+		t.Fatalf("POST /api/instances as user status = %d, want %d body=%s", instancesRR.Code, http.StatusForbidden, instancesRR.Body.String())
+	}
+
+	listUsersReq := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	listUsersReq.AddCookie(userCookie)
+	listUsersRR := httptest.NewRecorder()
+	h.ServeHTTP(listUsersRR, listUsersReq)
+	if listUsersRR.Code != http.StatusForbidden {
+		t.Fatalf("GET /api/users as user status = %d, want %d body=%s", listUsersRR.Code, http.StatusForbidden, listUsersRR.Body.String())
 	}
 }

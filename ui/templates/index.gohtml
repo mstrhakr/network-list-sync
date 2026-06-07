@@ -12,10 +12,17 @@
     <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
+    <script>
+        window.NLS_PRINCIPAL = {
+            isAdmin: {{if and .Principal .Principal.IsAdmin}}true{{else}}false{{end}},
+            username: "{{if .Principal}}{{.Principal.Username}}{{end}}"
+        };
+    </script>
     {{template "page-shell" .}}
     {{template "job-modal" .}}
     {{template "controller-modal" .}}
     {{template "dns-modal" .}}
+    {{template "users-modal" .}}
     {{template "setup-wizard-modal" .}}
     {{template "logs-modal" .}}
     {{template "network-list-modal" .}}

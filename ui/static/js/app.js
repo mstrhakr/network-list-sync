@@ -1,5 +1,8 @@
 const API = '/api';
 const browserFetch = window.fetch.bind(window);
+const principalData = window.NLS_PRINCIPAL || {};
+const isAdminUser = principalData.isAdmin === true;
+const currentUsername = typeof principalData.username === 'string' ? principalData.username : '';
 let jobs = [];
 let controllers = [];
 const logDetailsMap = new Map();
@@ -35,6 +38,12 @@ let authRedirectInProgress = false;
 let setupWizardActive = false;
 let setupWizardStep = 'endpoint';
 let setupWizardSuppressed = false;
+
+function ensureAdminAction() {
+    if (isAdminUser) return true;
+    showToast('Admin privileges required', 'error');
+    return false;
+}
 
 function clearRefreshTimers() {
     if (jobsRefreshTimer) {
@@ -332,6 +341,7 @@ function updateSetupWizardUI() {
 }
 
 function showSetupWizard(step) {
+    if (!isAdminUser) return;
     if (!Array.isArray(controllers) || controllers.length !== 0) return;
     setupWizardActive = true;
     setupWizardStep = step || 'endpoint';
@@ -364,6 +374,7 @@ function revealSetupWizardIfActive() {
 }
 
 function maybeShowSetupWizard() {
+    if (!isAdminUser) return;
     if (setupWizardSuppressed || setupWizardActive) return;
     if (!Array.isArray(controllers) || controllers.length !== 0) return;
     showSetupWizard('endpoint');
@@ -517,6 +528,7 @@ async function loadControllers() {
 }
 
 function showControllerModal() {
+    if (!ensureAdminAction()) return;
     loadControllers().then(function() {
         renderControllerTable();
         hideControllerForm();
@@ -555,6 +567,7 @@ function renderControllerTable() {
 }
 
 function showControllerForm(ctrl) {
+    if (!ensureAdminAction()) return;
     document.getElementById('controllerEditorModal').classList.remove('hidden');
     document.getElementById('controllerEditorTitle').textContent = ctrl ? 'Edit Endpoint' : 'Add Endpoint';
     if (ctrl) {
@@ -592,6 +605,7 @@ function editController(id) {
 
 async function saveController(event) {
     event.preventDefault();
+    if (!ensureAdminAction()) return;
     var id = document.getElementById('ctrlId').value;
     var provider = document.getElementById('ctrlProvider').value || 'unifi';
     var providerUI = getControllerProviderUI(provider);
@@ -633,6 +647,7 @@ async function saveController(event) {
 }
 
 async function testController() {
+    if (!ensureAdminAction()) return;
     var id = document.getElementById('ctrlId').value;
     var provider = document.getElementById('ctrlProvider').value || 'unifi';
     var providerUI = getControllerProviderUI(provider);
@@ -666,6 +681,7 @@ async function testController() {
 }
 
 async function deleteController(id) {
+    if (!ensureAdminAction()) return;
     if (!confirm('Delete this endpoint? Jobs using it will stop working.')) return;
     try {
         var resp = await fetch(API + '/instances/' + id, { method: 'DELETE' });
@@ -923,6 +939,7 @@ async function loadJobs() {
 
 async function saveJob(event) {
     event.preventDefault();
+    if (!ensureAdminAction()) return;
     const id = document.getElementById('jobId').value;
     const selectedSchedulePreset = document.getElementById('schedulePreset').value;
     const scheduleEnabled = selectedSchedulePreset === 'manual' ? true : document.getElementById('enabled').checked;
@@ -994,6 +1011,7 @@ async function saveJob(event) {
 }
 
 async function deleteJob(id) {
+    if (!ensureAdminAction()) return;
     if (!confirm('Delete this sync job and its run history?')) return;
     try {
         const resp = await fetch(API + '/jobs/' + id, { method: 'DELETE' });
@@ -1095,6 +1113,7 @@ function renderNetworkList(networkList) {
 }
 
 async function previewResolve() {
+    if (!isAdminUser) return;
     const hostnames = document.getElementById('hostnames').value;
     const preview = document.getElementById('resolvePreview');
     if (!hostnames.trim()) {
@@ -1145,6 +1164,13 @@ function renderJobCards(animateCards) {
         const targets = Array.isArray(job.targets) ? job.targets : [];
         const endpointCount = targets.length > 0 ? targets.length : 1;
 
+        var adminButtons = '';
+        if (isAdminUser) {
+            adminButtons =
+                '<button class="btn btn-small btn-secondary" onclick="editJob(' + job.id + ')">Edit</button>' +
+                '<button class="btn btn-small btn-danger" onclick="deleteJob(' + job.id + ')">Delete</button>';
+        }
+
         return '<div class="' + cardClass + '" oncontextmenu="return openJobActionsMenu(event, ' + job.id + ')">' +
             '<div class="job-header">' +
                 '<h3>' + escapeHtml(job.name) + '</h3>' +
@@ -1168,10 +1194,9 @@ function renderJobCards(animateCards) {
             '<div class="job-actions">' +
                 '<div class="job-actions-desktop">' +
                     '<button class="btn btn-small btn-primary" onclick="runJob(' + job.id + ')">&#9654; Run Now</button>' +
-                    '<button class="btn btn-small btn-secondary" onclick="editJob(' + job.id + ')">Edit</button>' +
                     '<button class="btn btn-small btn-secondary" onclick="showNetworkList(' + job.id + ')">View</button>' +
                     '<button class="btn btn-small btn-secondary" onclick="showLogs(' + job.id + ')">Logs</button>' +
-                    '<button class="btn btn-small btn-danger" onclick="deleteJob(' + job.id + ')">Delete</button>' +
+                    adminButtons +
                 '</div>' +
                 '<button class="btn btn-small btn-secondary job-actions-menu-btn" onclick="openJobActionsMenuForButton(event, ' + job.id + ')">Actions</button>' +
             '</div>' +
@@ -1300,6 +1325,11 @@ function triggerJobActionFromMenu(action) {
     hideJobActionsMenu();
     if (!jobId) return;
 
+    if (!isAdminUser && (action === 'edit' || action === 'delete')) {
+        showToast('Admin privileges required', 'error');
+        return;
+    }
+
     if (action === 'run') {
         runJob(jobId);
     } else if (action === 'edit') {
@@ -1358,6 +1388,7 @@ function toggleDetails(logId, btn) {
 }
 
 function showJobModal(job) {
+    if (!ensureAdminAction()) return;
     const modal = document.getElementById('jobModal');
     const title = document.getElementById('jobModalTitle');
 
@@ -1417,6 +1448,7 @@ function hideLogsModal() {
 }
 
 function editJob(id) {
+    if (!ensureAdminAction()) return;
     const job = jobs.find(function(item) { return item.id === id; });
     if (job) showJobModal(job);
 }
@@ -1461,6 +1493,7 @@ async function loadDNSServers() {
 }
 
 function showDNSModal() {
+    if (!ensureAdminAction()) return;
     loadDNSServers().then(function() {
         renderDNSTable();
         hideDNSServerForm();
@@ -1495,6 +1528,7 @@ function renderDNSTable() {
 }
 
 function showDNSServerForm(srv) {
+    if (!ensureAdminAction()) return;
     document.getElementById('dnsEditorModal').classList.remove('hidden');
     document.getElementById('dnsEditorTitle').textContent = srv ? 'Edit DNS Server' : 'Add DNS Server';
     if (srv) {
@@ -1521,6 +1555,7 @@ function editDNSServer(id) {
 
 async function saveDNSServer(event) {
     event.preventDefault();
+    if (!ensureAdminAction()) return;
     var id = document.getElementById('dnsId').value;
     var data = {
         name: document.getElementById('dnsName').value,
@@ -1554,6 +1589,7 @@ async function saveDNSServer(event) {
 }
 
 async function deleteDNSServer(id) {
+    if (!ensureAdminAction()) return;
     if (!confirm('Delete this DNS server?')) return;
     try {
         var resp = await fetch(API + '/dns-servers/' + id, { method: 'DELETE' });
@@ -1562,6 +1598,146 @@ async function deleteDNSServer(id) {
         renderDNSTable();
         showToast('DNS server deleted', 'success');
         checkHealth();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+let users = [];
+
+async function loadUsers() {
+    try {
+        const resp = await fetch(API + '/users');
+        if (!resp.ok) throw new Error('Failed to load users');
+        users = await resp.json();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function showUsersModal() {
+    if (!ensureAdminAction()) return;
+    loadUsers().then(function() {
+        renderUsersTable();
+        hideUserForm();
+        document.getElementById('usersModal').classList.remove('hidden');
+    });
+}
+
+function hideUsersModal() {
+    document.getElementById('usersModal').classList.add('hidden');
+    hideUserForm();
+}
+
+function renderUsersTable() {
+    var tbody = document.getElementById('usersTableBody');
+    var noMsg = document.getElementById('noUsersMsg');
+    if (!tbody || !noMsg) return;
+    if (!users.length) {
+        tbody.innerHTML = '';
+        noMsg.classList.remove('hidden');
+        return;
+    }
+    noMsg.classList.add('hidden');
+    tbody.innerHTML = users.map(function(u) {
+        var role = u.is_admin ? '<span class="badge badge-success">Admin</span>' : '<span class="badge badge-warning">User</span>';
+        var actions =
+            '<button class="btn btn-small btn-secondary" onclick="editUser(' + u.id + ')">Edit</button>' +
+            (u.username === currentUsername ? '' : ' <button class="btn btn-small btn-danger" onclick="deleteUserAccount(' + u.id + ')">Delete</button>');
+        return '<tr>' +
+            '<td>' + escapeHtml(u.username) + '</td>' +
+            '<td>' + role + '</td>' +
+            '<td>' + escapeHtml(u.auth_provider || 'local') + '</td>' +
+            '<td>' + formatTime(u.updated_at) + '</td>' +
+            '<td style="white-space:nowrap">' + actions + '</td>' +
+            '</tr>';
+    }).join('');
+}
+
+function showUserForm(user) {
+    if (!ensureAdminAction()) return;
+    var modal = document.getElementById('userEditorModal');
+    var title = document.getElementById('userEditorTitle');
+    var passwordHint = document.getElementById('userPasswordHint');
+    var passwordInput = document.getElementById('userPassword');
+
+    modal.classList.remove('hidden');
+    if (user) {
+        title.textContent = 'Edit User';
+        document.getElementById('userId').value = user.id;
+        document.getElementById('userUsername').value = user.username;
+        document.getElementById('userIsAdmin').checked = !!user.is_admin;
+        passwordInput.value = '';
+        passwordInput.required = false;
+        passwordInput.placeholder = 'Leave blank to keep current password';
+        passwordHint.textContent = 'Optional: set to rotate this user password.';
+    } else {
+        title.textContent = 'Add User';
+        document.getElementById('userForm').reset();
+        document.getElementById('userId').value = '';
+        document.getElementById('userIsAdmin').checked = false;
+        passwordInput.required = true;
+        passwordInput.placeholder = 'At least 12 characters';
+        passwordHint.textContent = 'Required for new users.';
+    }
+}
+
+function hideUserForm() {
+    var modal = document.getElementById('userEditorModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+function editUser(id) {
+    var user = users.find(function(item) { return item.id === id; });
+    if (user) showUserForm(user);
+}
+
+async function saveUser(event) {
+    event.preventDefault();
+    if (!ensureAdminAction()) return;
+
+    var id = document.getElementById('userId').value;
+    var data = {
+        username: document.getElementById('userUsername').value,
+        password: document.getElementById('userPassword').value,
+        is_admin: document.getElementById('userIsAdmin').checked,
+    };
+    var url = id ? API + '/users/' + id : API + '/users';
+    var method = id ? 'PUT' : 'POST';
+
+    try {
+        var resp = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        var body = await resp.json().catch(function() { return {}; });
+        if (!resp.ok) {
+            throw new Error(body.error || 'Request failed');
+        }
+        await loadUsers();
+        renderUsersTable();
+        hideUserForm();
+        showToast(id ? 'User updated' : 'User created', 'success');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+async function deleteUserAccount(id) {
+    if (!ensureAdminAction()) return;
+    if (!confirm('Delete this user?')) return;
+    try {
+        var resp = await fetch(API + '/users/' + id, { method: 'DELETE' });
+        if (!resp.ok) {
+            var body = await resp.json().catch(function() { return {}; });
+            throw new Error(body.error || 'Delete failed');
+        }
+        await loadUsers();
+        renderUsersTable();
+        showToast('User deleted', 'success');
     } catch (err) {
         showToast(err.message, 'error');
     }
