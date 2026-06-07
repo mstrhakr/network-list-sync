@@ -50,6 +50,7 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.loginSubmit)
 	mux.HandleFunc("POST /logout", h.logout)
+	mux.HandleFunc("POST /api/account/password", h.changePassword)
 
 	mux.HandleFunc("GET /api/instances", h.listControllers)
 	mux.HandleFunc("POST /api/instances", h.createController)

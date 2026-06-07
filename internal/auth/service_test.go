@@ -114,3 +114,50 @@ func TestUsernamesPreserveCaseAndAuthenticateExactly(t *testing.T) {
 		t.Fatalf("AuthenticatePassword(lowercase) error = nil, want invalid credentials")
 	}
 }
+
+func TestChangePasswordKeepsCurrentSessionAndRevokesOthers(t *testing.T) {
+	t.Parallel()
+
+	s, err := store.New(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatalf("store.New() error = %v", err)
+	}
+	defer s.Close()
+
+	svc := NewService(s)
+	principal, err := svc.CreateInitialAdmin(context.Background(), "admin", "super-secure-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAdmin() error = %v", err)
+	}
+
+	tokenKeep, _, err := svc.CreateSession(context.Background(), principal)
+	if err != nil {
+		t.Fatalf("CreateSession(keep) error = %v", err)
+	}
+	tokenRevoke, _, err := svc.CreateSession(context.Background(), principal)
+	if err != nil {
+		t.Fatalf("CreateSession(revoke) error = %v", err)
+	}
+
+	if err := svc.ChangePassword(context.Background(), principal.UserID, "super-secure-pass", "even-more-secure-pass", tokenKeep); err != nil {
+		t.Fatalf("ChangePassword() error = %v", err)
+	}
+
+	if _, err := svc.AuthenticatePassword(context.Background(), ProviderLocal, "admin", "super-secure-pass"); err == nil {
+		t.Fatalf("AuthenticatePassword(old password) error = nil, want invalid credentials")
+	}
+	if _, err := svc.AuthenticatePassword(context.Background(), ProviderLocal, "admin", "even-more-secure-pass"); err != nil {
+		t.Fatalf("AuthenticatePassword(new password) error = %v", err)
+	}
+
+	if _, err := svc.PrincipalFromSessionToken(context.Background(), tokenKeep); err != nil {
+		t.Fatalf("PrincipalFromSessionToken(keep) error = %v", err)
+	}
+	if _, err := svc.PrincipalFromSessionToken(context.Background(), tokenRevoke); err == nil {
+		t.Fatalf("PrincipalFromSessionToken(revoked) error = nil, want error")
+	}
+
+	if err := svc.ChangePassword(context.Background(), principal.UserID, "wrong-current", "super-another-pass", tokenKeep); err == nil {
+		t.Fatalf("ChangePassword(wrong current) error = nil, want error")
+	}
+}

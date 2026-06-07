@@ -308,6 +308,56 @@ async function logout() {
     }
 }
 
+function showChangePasswordModal() {
+    var form = document.getElementById('changePasswordForm');
+    if (form) {
+        form.reset();
+    }
+    document.getElementById('changePasswordModal').classList.remove('hidden');
+}
+
+function hideChangePasswordModal() {
+    document.getElementById('changePasswordModal').classList.add('hidden');
+}
+
+async function submitChangePassword(event) {
+    event.preventDefault();
+
+    var currentPassword = document.getElementById('currentPassword').value;
+    var newPassword = document.getElementById('newPassword').value;
+    var confirmPassword = document.getElementById('confirmPassword').value;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        showToast('All password fields are required', 'error');
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        showToast('Password confirmation does not match', 'error');
+        return;
+    }
+
+    try {
+        var resp = await fetch(API + '/account/password', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+                confirm_password: confirmPassword,
+            }),
+        });
+        var body = await resp.json();
+        if (!resp.ok) {
+            throw new Error((body && body.error) ? body.error : 'Password update failed');
+        }
+
+        hideChangePasswordModal();
+        showToast('Password updated', 'success');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
 async function checkHealth() {
     try {
         const resp = await fetch(API + '/health');

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -109,5 +111,86 @@ func TestHealthIsPublicWithoutAuth(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/health status = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+func TestChangePasswordAPI(t *testing.T) {
+	t.Parallel()
+
+	s, err := store.New(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatalf("store.New() error = %v", err)
+	}
+	defer s.Close()
+
+	uiFS := fstest.MapFS{
+		"templates/index.gohtml":          {Data: []byte(`{{define "index"}}<html><body>{{template "shell" .}}</body></html>{{end}}`)},
+		"templates/login.gohtml":          {Data: []byte(`{{define "login"}}<html><body>{{if .Error}}ERR:{{.Error}}{{end}}{{if .NeedsSetup}}SETUP{{else}}LOGIN{{end}}</body></html>{{end}}`)},
+		"templates/partials/shell.gohtml": {Data: []byte(`{{define "shell"}}hello{{end}}`)},
+		"static/css/app.css":              {Data: []byte("body{}")},
+		"logo.png":                        {Data: []byte("png")},
+	}
+
+	h := NewHandler(s, nil, nil, uiFS)
+
+	setupForm := url.Values{}
+	setupForm.Set("username", "admin")
+	setupForm.Set("password", "super-secure-pass")
+	setupForm.Set("confirm_password", "super-secure-pass")
+	setupForm.Set("provider", "local")
+
+	setupReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(setupForm.Encode()))
+	setupReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	setupRR := httptest.NewRecorder()
+	h.ServeHTTP(setupRR, setupReq)
+	if setupRR.Code != http.StatusSeeOther {
+		t.Fatalf("setup POST /login status = %d, want %d", setupRR.Code, http.StatusSeeOther)
+	}
+	cookies := setupRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("setup POST /login set-cookie missing")
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"current_password": "super-secure-pass",
+		"new_password":     "super-duper-secure-pass",
+		"confirm_password": "super-duper-secure-pass",
+	})
+	changeReq := httptest.NewRequest(http.MethodPost, "/api/account/password", bytes.NewReader(payload))
+	changeReq.Header.Set("Content-Type", "application/json")
+	changeReq.AddCookie(cookies[0])
+	changeRR := httptest.NewRecorder()
+	h.ServeHTTP(changeRR, changeReq)
+	if changeRR.Code != http.StatusOK {
+		t.Fatalf("POST /api/account/password status = %d, want %d body=%s", changeRR.Code, http.StatusOK, changeRR.Body.String())
+	}
+
+	logoutReq := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	logoutReq.AddCookie(cookies[0])
+	logoutRR := httptest.NewRecorder()
+	h.ServeHTTP(logoutRR, logoutReq)
+
+	oldLogin := url.Values{}
+	oldLogin.Set("username", "admin")
+	oldLogin.Set("password", "super-secure-pass")
+	oldLogin.Set("provider", "local")
+	oldReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(oldLogin.Encode()))
+	oldReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	oldRR := httptest.NewRecorder()
+	h.ServeHTTP(oldRR, oldReq)
+	if oldRR.Code != http.StatusUnauthorized {
+		t.Fatalf("POST /login old password status = %d, want %d", oldRR.Code, http.StatusUnauthorized)
+	}
+
+	newLogin := url.Values{}
+	newLogin.Set("username", "admin")
+	newLogin.Set("password", "super-duper-secure-pass")
+	newLogin.Set("provider", "local")
+	newReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(newLogin.Encode()))
+	newReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	newRR := httptest.NewRecorder()
+	h.ServeHTTP(newRR, newReq)
+	if newRR.Code != http.StatusSeeOther {
+		t.Fatalf("POST /login new password status = %d, want %d", newRR.Code, http.StatusSeeOther)
 	}
 }

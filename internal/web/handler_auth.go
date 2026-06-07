@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -173,6 +174,65 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
+	if h.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth is not configured")
+		return
+	}
+
+	principal := principalFromContext(r.Context())
+	if principal == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	req.CurrentPassword = strings.TrimSpace(req.CurrentPassword)
+	req.NewPassword = strings.TrimSpace(req.NewPassword)
+	req.ConfirmPassword = strings.TrimSpace(req.ConfirmPassword)
+
+	if req.CurrentPassword == "" || req.NewPassword == "" || req.ConfirmPassword == "" {
+		writeError(w, http.StatusBadRequest, "current_password, new_password, and confirm_password are required")
+		return
+	}
+	if req.NewPassword != req.ConfirmPassword {
+		writeError(w, http.StatusBadRequest, "password confirmation does not match")
+		return
+	}
+	if err := auth.ValidatePassword(req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	keepSessionToken := ""
+	if cookie, err := r.Cookie(auth.SessionCookieName); err == nil {
+		keepSessionToken = cookie.Value
+	}
+
+	err := h.auth.ChangePassword(r.Context(), principal.UserID, req.CurrentPassword, req.NewPassword, keepSessionToken)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrInvalidCurrentPassword):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, auth.ErrPasswordChangeNotAllowed):
+			writeError(w, http.StatusForbidden, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to change password")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type loginViewData struct {

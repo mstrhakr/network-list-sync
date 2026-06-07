@@ -27,6 +27,8 @@ var (
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrAlreadyInitialized = errors.New("initial admin already exists")
 	ErrSessionNotFound    = errors.New("session not found")
+	ErrInvalidCurrentPassword = errors.New("current password is incorrect")
+	ErrPasswordChangeNotAllowed = errors.New("password changes are only allowed for local users")
 )
 
 // Principal describes the authenticated app identity.
@@ -195,6 +197,43 @@ func (s *Service) RevokeSession(ctx context.Context, token string) error {
 		return nil
 	}
 	return s.store.DeleteSessionByTokenHash(hashToken(token))
+}
+
+func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassword, newPassword, keepSessionToken string) error {
+	_ = ctx
+	if s.store == nil {
+		return fmt.Errorf("auth store not configured")
+	}
+	if err := ValidatePassword(newPassword); err != nil {
+		return err
+	}
+
+	u, err := s.store.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+	provider := strings.ToLower(strings.TrimSpace(u.AuthProvider))
+	if provider != "" && provider != ProviderLocal {
+		return ErrPasswordChangeNotAllowed
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(currentPassword)) != nil {
+		return ErrInvalidCurrentPassword
+	}
+
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	if err := s.store.UpdateUserPasswordHash(userID, hash); err != nil {
+		return err
+	}
+
+	keepSessionToken = strings.TrimSpace(keepSessionToken)
+	keepTokenHash := ""
+	if keepSessionToken != "" {
+		keepTokenHash = hashToken(keepSessionToken)
+	}
+	return s.store.DeleteSessionsByUserIDExceptTokenHash(userID, keepTokenHash)
 }
 
 func BootstrapInitialAdmin(s *store.Store, username, password string) (bool, error) {

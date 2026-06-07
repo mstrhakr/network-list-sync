@@ -785,6 +785,27 @@ func (s *Store) GetUserByUsername(username string) (*AppUser, error) {
 	return &u, nil
 }
 
+func (s *Store) GetUserByID(id int64) (*AppUser, error) {
+	var u AppUser
+	var isAdmin int
+	err := s.db.QueryRow(`
+		SELECT id, username, password_hash, auth_provider, is_admin, created_at, updated_at
+		FROM app_users
+		WHERE id = ?`, id).Scan(
+		&u.ID, &u.Username, &u.PasswordHash, &u.AuthProvider, &isAdmin, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	u.IsAdmin = isAdmin != 0
+	return &u, nil
+}
+
+func (s *Store) UpdateUserPasswordHash(userID int64, passwordHash string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(`UPDATE app_users SET password_hash = ?, updated_at = ? WHERE id = ?`, passwordHash, now, userID)
+	return err
+}
+
 func (s *Store) GetUserBySessionTokenHash(tokenHash string, now string) (*AppUser, error) {
 	var u AppUser
 	var isAdmin int
@@ -817,6 +838,16 @@ func (s *Store) TouchSession(tokenHash, seenAt string) error {
 
 func (s *Store) DeleteSessionByTokenHash(tokenHash string) error {
 	_, err := s.db.Exec(`DELETE FROM app_sessions WHERE token_hash = ?`, tokenHash)
+	return err
+}
+
+func (s *Store) DeleteSessionsByUserIDExceptTokenHash(userID int64, keepTokenHash string) error {
+	keepTokenHash = strings.TrimSpace(keepTokenHash)
+	if keepTokenHash == "" {
+		_, err := s.db.Exec(`DELETE FROM app_sessions WHERE user_id = ?`, userID)
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM app_sessions WHERE user_id = ? AND token_hash != ?`, userID, keepTokenHash)
 	return err
 }
 
