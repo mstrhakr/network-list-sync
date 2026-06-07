@@ -400,6 +400,7 @@ function showControllerModal() {
 
 function hideControllerModal() {
     document.getElementById('controllerModal').classList.add('hidden');
+    hideControllerForm();
 }
 
 function renderControllerTable() {
@@ -428,7 +429,8 @@ function renderControllerTable() {
 }
 
 function showControllerForm(ctrl) {
-    document.getElementById('controllerFormWrap').classList.remove('hidden');
+    document.getElementById('controllerEditorModal').classList.remove('hidden');
+    document.getElementById('controllerEditorTitle').textContent = ctrl ? 'Edit Endpoint' : 'Add Endpoint';
     if (ctrl) {
         document.getElementById('ctrlId').value = ctrl.id;
         document.getElementById('ctrlProvider').value = (ctrl.provider || 'unifi').toLowerCase();
@@ -453,7 +455,7 @@ function showControllerForm(ctrl) {
 }
 
 function hideControllerForm() {
-    document.getElementById('controllerFormWrap').classList.add('hidden');
+    document.getElementById('controllerEditorModal').classList.add('hidden');
 }
 
 function editController(id) {
@@ -1331,6 +1333,7 @@ function showDNSModal() {
 
 function hideDNSModal() {
     document.getElementById('dnsModal').classList.add('hidden');
+    hideDNSServerForm();
 }
 
 function renderDNSTable() {
@@ -1355,7 +1358,8 @@ function renderDNSTable() {
 }
 
 function showDNSServerForm(srv) {
-    document.getElementById('dnsFormWrap').classList.remove('hidden');
+    document.getElementById('dnsEditorModal').classList.remove('hidden');
+    document.getElementById('dnsEditorTitle').textContent = srv ? 'Edit DNS Server' : 'Add DNS Server';
     if (srv) {
         document.getElementById('dnsId').value = srv.id;
         document.getElementById('dnsName').value = srv.name;
@@ -1369,7 +1373,7 @@ function showDNSServerForm(srv) {
 }
 
 function hideDNSServerForm() {
-    document.getElementById('dnsFormWrap').classList.add('hidden');
+    document.getElementById('dnsEditorModal').classList.add('hidden');
 }
 
 function editDNSServer(id) {
