@@ -32,6 +32,9 @@ let controllerProviderChangeBound = false;
 let jobsRefreshTimer = null;
 let healthRefreshTimer = null;
 let authRedirectInProgress = false;
+let setupWizardActive = false;
+let setupWizardStep = 'endpoint';
+let setupWizardSuppressed = false;
 
 function clearRefreshTimers() {
     if (jobsRefreshTimer) {
@@ -283,6 +286,125 @@ function bindControllerProviderChange() {
     controllerProviderChangeBound = true;
 }
 
+function markSetupWizardStepState(endpointState, dnsState, jobState) {
+    var endpointEl = document.getElementById('wizardStepEndpoint');
+    var dnsEl = document.getElementById('wizardStepDNS');
+    var jobEl = document.getElementById('wizardStepJob');
+    if (!endpointEl || !dnsEl || !jobEl) return;
+
+    endpointEl.classList.toggle('active', endpointState === 'active');
+    endpointEl.classList.toggle('completed', endpointState === 'completed');
+    dnsEl.classList.toggle('active', dnsState === 'active');
+    dnsEl.classList.toggle('completed', dnsState === 'completed');
+    jobEl.classList.toggle('active', jobState === 'active');
+    jobEl.classList.toggle('completed', jobState === 'completed');
+}
+
+function updateSetupWizardUI() {
+    var lead = document.getElementById('setupWizardLead');
+    var hint = document.getElementById('setupWizardHint');
+    var primary = document.getElementById('setupWizardPrimaryBtn');
+    var secondary = document.getElementById('setupWizardSecondaryBtn');
+    if (!lead || !hint || !primary || !secondary) return;
+
+    if (setupWizardStep === 'endpoint') {
+        markSetupWizardStepState('active', 'pending', 'pending');
+        lead.textContent = 'No endpoints found. Start by adding the first endpoint connection.';
+        hint.textContent = 'This is required before creating sync jobs.';
+        primary.textContent = 'Add Endpoint';
+        secondary.textContent = 'Skip for Now';
+        return;
+    }
+    if (setupWizardStep === 'dns') {
+        markSetupWizardStepState('completed', 'active', 'pending');
+        lead.textContent = 'Optional: add a custom DNS server for hostname resolution.';
+        hint.textContent = 'You can skip this step and use built-in public resolvers.';
+        primary.textContent = 'Add DNS Server';
+        secondary.textContent = 'Skip DNS Step';
+        return;
+    }
+
+    markSetupWizardStepState('completed', 'completed', 'active');
+    lead.textContent = 'Create the first sync job to complete setup.';
+    hint.textContent = 'Select the endpoint, choose a target list, then save.';
+    primary.textContent = 'Create Sync Job';
+    secondary.textContent = 'Finish Later';
+}
+
+function showSetupWizard(step) {
+    if (!Array.isArray(controllers) || controllers.length !== 0) return;
+    setupWizardActive = true;
+    setupWizardStep = step || 'endpoint';
+    updateSetupWizardUI();
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+function hideSetupWizard(options) {
+    var opts = options || {};
+    setupWizardActive = false;
+    if (opts.suppressUntilReload) {
+        setupWizardSuppressed = true;
+    }
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+function revealSetupWizardIfActive() {
+    if (!setupWizardActive) return;
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        updateSetupWizardUI();
+        modal.classList.remove('hidden');
+    }
+}
+
+function maybeShowSetupWizard() {
+    if (setupWizardSuppressed || setupWizardActive) return;
+    if (!Array.isArray(controllers) || controllers.length !== 0) return;
+    showSetupWizard('endpoint');
+}
+
+function advanceSetupWizard(step) {
+    if (!setupWizardActive) return;
+    setupWizardStep = step;
+    revealSetupWizardIfActive();
+}
+
+function setupWizardPrimaryAction() {
+    if (!setupWizardActive) return;
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    if (setupWizardStep === 'endpoint') {
+        showControllerForm();
+        return;
+    }
+    if (setupWizardStep === 'dns') {
+        showDNSServerForm();
+        return;
+    }
+    showJobModal();
+}
+
+function setupWizardSecondaryAction() {
+    if (!setupWizardActive) return;
+    if (setupWizardStep === 'endpoint') {
+        hideSetupWizard({ suppressUntilReload: true });
+        return;
+    }
+    if (setupWizardStep === 'dns') {
+        advanceSetupWizard('job');
+        return;
+    }
+    hideSetupWizard({ suppressUntilReload: true });
+}
+
 async function init() {
     initThemeToggle();
     initJobsTableCustomizer();
@@ -297,6 +419,7 @@ async function init() {
     clearRefreshTimers();
     jobsRefreshTimer = setInterval(loadJobs, 30000);
     healthRefreshTimer = setInterval(checkHealth, 30000);
+    maybeShowSetupWizard();
 }
 
 async function logout() {
@@ -383,6 +506,9 @@ async function loadControllers() {
         const resp = await fetch(API + '/instances');
         if (!resp.ok) return false;
         controllers = await resp.json();
+        if (setupWizardActive && controllers.length > 0 && setupWizardStep === 'endpoint') {
+            advanceSetupWizard('dns');
+        }
         return true;
     } catch (err) {
         console.error('Load instances error:', err);
@@ -456,6 +582,7 @@ function showControllerForm(ctrl) {
 
 function hideControllerForm() {
     document.getElementById('controllerEditorModal').classList.add('hidden');
+    revealSetupWizardIfActive();
 }
 
 function editController(id) {
@@ -482,6 +609,7 @@ async function saveController(event) {
     }
     var url = id ? API + '/instances/' + id : API + '/instances';
     var method = id ? 'PUT' : 'POST';
+    var creating = !id;
     try {
         var resp = await fetch(url, {
             method: method,
@@ -496,6 +624,9 @@ async function saveController(event) {
         renderControllerTable();
         hideControllerForm();
         showToast(id ? 'Endpoint updated' : 'Endpoint added', 'success');
+        if (creating && setupWizardActive) {
+            advanceSetupWizard('dns');
+        }
     } catch (err) {
         showToast(err.message, 'error');
     }
@@ -542,6 +673,7 @@ async function deleteController(id) {
         await loadControllers();
         renderControllerTable();
         showToast('Endpoint deleted', 'success');
+        maybeShowSetupWizard();
     } catch (err) {
         showToast(err.message, 'error');
     }
@@ -838,6 +970,7 @@ async function saveJob(event) {
 
     const url = id ? API + '/jobs/' + id : API + '/jobs';
     const method = id ? 'PUT' : 'POST';
+    const creating = !id;
 
     try {
         const resp = await fetch(url, {
@@ -852,6 +985,9 @@ async function saveJob(event) {
         hideJobModal();
         await loadJobs();
         showToast(id ? 'Job updated' : 'Job created', 'success');
+        if (creating && setupWizardActive) {
+            hideSetupWizard({ suppressUntilReload: true });
+        }
     } catch (err) {
         showToast(err.message, 'error');
     }
@@ -1273,6 +1409,7 @@ function showJobModal(job) {
 
 function hideJobModal() {
     document.getElementById('jobModal').classList.add('hidden');
+    revealSetupWizardIfActive();
 }
 
 function hideLogsModal() {
@@ -1374,6 +1511,7 @@ function showDNSServerForm(srv) {
 
 function hideDNSServerForm() {
     document.getElementById('dnsEditorModal').classList.add('hidden');
+    revealSetupWizardIfActive();
 }
 
 function editDNSServer(id) {
@@ -1391,6 +1529,7 @@ async function saveDNSServer(event) {
     };
     var url = id ? API + '/dns-servers/' + id : API + '/dns-servers';
     var method = id ? 'PUT' : 'POST';
+    var creating = !id;
     try {
         var resp = await fetch(url, {
             method: method,
@@ -1406,6 +1545,9 @@ async function saveDNSServer(event) {
         hideDNSServerForm();
         showToast(id ? 'DNS server updated' : 'DNS server added', 'success');
         checkHealth();
+        if (creating && setupWizardActive) {
+            advanceSetupWizard('job');
+        }
     } catch (err) {
         showToast(err.message, 'error');
     }
