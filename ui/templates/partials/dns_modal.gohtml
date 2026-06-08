@@ -11,32 +11,6 @@
             <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
                 <button class="btn btn-primary btn-small" onclick="showDNSServerForm()">+ Add DNS Server</button>
             </div>
-            <div id="dnsFormWrap" class="hidden" style="margin-bottom:1rem;padding:1rem;background:var(--panel-bg);border-radius:var(--radius);">
-                <form id="dnsForm" onsubmit="saveDNSServer(event)">
-                    <input type="hidden" id="dnsId">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="dnsName">Label</label>
-                            <input type="text" id="dnsName" required placeholder="e.g., Internal DNS">
-                        </div>
-                        <div class="form-group">
-                            <label for="dnsAddress">Address</label>
-                            <input type="text" id="dnsAddress" required placeholder="192.168.1.53 or 192.168.1.53:5353">
-                            <span class="hint">IP or IP:port. Defaults to port 53 if omitted.</span>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
-                            <input type="checkbox" id="dnsEnabled" checked>
-                            Enabled
-                        </label>
-                    </div>
-                    <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
-                        <button type="button" class="btn btn-secondary btn-small" onclick="hideDNSServerForm()">Cancel</button>
-                        <button type="submit" class="btn btn-primary btn-small">Save</button>
-                    </div>
-                </form>
-            </div>
             <div class="jobs-table-wrap modal-table-scroll">
                 <table class="logs-table" id="dnsTable">
                     <thead><tr><th>Label</th><th>Address</th><th>Status</th><th>Actions</th></tr></thead>
@@ -45,6 +19,40 @@
             </div>
             <p id="noDNSMsg" class="empty-text hidden">No custom DNS servers. Built-in public resolvers (Cloudflare, Google, Quad9, OpenDNS) are always used.</p>
         </div>
+    </div>
+</div>
+
+<div id="dnsEditorModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideDNSServerForm()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="dnsEditorTitle">Add DNS Server</h2>
+            <button class="modal-close" onclick="hideDNSServerForm()">&times;</button>
+        </div>
+        <form id="dnsForm" onsubmit="saveDNSServer(event)" style="padding:1rem;">
+            <input type="hidden" id="dnsId">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="dnsName">Label</label>
+                    <input type="text" id="dnsName" required placeholder="e.g., Internal DNS">
+                </div>
+                <div class="form-group">
+                    <label for="dnsAddress">Address</label>
+                    <input type="text" id="dnsAddress" required placeholder="192.168.1.53 or 192.168.1.53:5353">
+                    <span class="hint">IP or IP:port. Defaults to port 53 if omitted.</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                    <input type="checkbox" id="dnsEnabled" checked>
+                    Enabled
+                </label>
+            </div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button type="button" class="btn btn-secondary btn-small" onclick="hideDNSServerForm()">Cancel</button>
+                <button type="submit" class="btn btn-primary btn-small">Save</button>
+            </div>
+        </form>
     </div>
 </div>
 {{end}}

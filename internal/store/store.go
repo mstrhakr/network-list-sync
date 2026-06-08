@@ -754,6 +754,35 @@ func (s *Store) CountUsers() (int, error) {
 	return count, err
 }
 
+func (s *Store) CountAdminUsers() (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM app_users WHERE is_admin = 1`).Scan(&count)
+	return count, err
+}
+
+func (s *Store) ListUsers() ([]AppUser, error) {
+	rows, err := s.db.Query(`
+		SELECT id, username, auth_provider, is_admin, created_at, updated_at
+		FROM app_users
+		ORDER BY username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AppUser
+	for rows.Next() {
+		var u AppUser
+		var isAdmin int
+		if err := rows.Scan(&u.ID, &u.Username, &u.AuthProvider, &isAdmin, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		u.IsAdmin = isAdmin != 0
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) CreateUser(u *AppUser) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	provider := strings.TrimSpace(strings.ToLower(u.AuthProvider))
@@ -783,6 +812,46 @@ func (s *Store) GetUserByUsername(username string) (*AppUser, error) {
 	}
 	u.IsAdmin = isAdmin != 0
 	return &u, nil
+}
+
+func (s *Store) GetUserByID(id int64) (*AppUser, error) {
+	var u AppUser
+	var isAdmin int
+	err := s.db.QueryRow(`
+		SELECT id, username, password_hash, auth_provider, is_admin, created_at, updated_at
+		FROM app_users
+		WHERE id = ?`, id).Scan(
+		&u.ID, &u.Username, &u.PasswordHash, &u.AuthProvider, &isAdmin, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	u.IsAdmin = isAdmin != 0
+	return &u, nil
+}
+
+func (s *Store) UpdateUserPasswordHash(userID int64, passwordHash string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(`UPDATE app_users SET password_hash = ?, updated_at = ? WHERE id = ?`, passwordHash, now, userID)
+	return err
+}
+
+func (s *Store) UpdateUserProfile(u *AppUser) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	provider := strings.TrimSpace(strings.ToLower(u.AuthProvider))
+	if provider == "" {
+		provider = "local"
+	}
+	_, err := s.db.Exec(`
+		UPDATE app_users
+		SET username = ?, auth_provider = ?, is_admin = ?, updated_at = ?
+		WHERE id = ?`,
+		strings.TrimSpace(u.Username), provider, boolToInt(u.IsAdmin), now, u.ID)
+	return err
+}
+
+func (s *Store) DeleteUser(userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM app_users WHERE id = ?`, userID)
+	return err
 }
 
 func (s *Store) GetUserBySessionTokenHash(tokenHash string, now string) (*AppUser, error) {
@@ -817,6 +886,16 @@ func (s *Store) TouchSession(tokenHash, seenAt string) error {
 
 func (s *Store) DeleteSessionByTokenHash(tokenHash string) error {
 	_, err := s.db.Exec(`DELETE FROM app_sessions WHERE token_hash = ?`, tokenHash)
+	return err
+}
+
+func (s *Store) DeleteSessionsByUserIDExceptTokenHash(userID int64, keepTokenHash string) error {
+	keepTokenHash = strings.TrimSpace(keepTokenHash)
+	if keepTokenHash == "" {
+		_, err := s.db.Exec(`DELETE FROM app_sessions WHERE user_id = ?`, userID)
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM app_sessions WHERE user_id = ? AND token_hash != ?`, userID, keepTokenHash)
 	return err
 }
 

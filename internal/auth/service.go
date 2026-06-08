@@ -24,9 +24,15 @@ const (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid username or password")
-	ErrAlreadyInitialized = errors.New("initial admin already exists")
-	ErrSessionNotFound    = errors.New("session not found")
+	ErrInvalidCredentials       = errors.New("invalid username or password")
+	ErrAlreadyInitialized       = errors.New("initial admin already exists")
+	ErrSessionNotFound          = errors.New("session not found")
+	ErrInvalidCurrentPassword   = errors.New("current password is incorrect")
+	ErrPasswordChangeNotAllowed = errors.New("password changes are only allowed for local users")
+	ErrUsernameTaken            = errors.New("username already exists")
+	ErrCannotDeleteSelf         = errors.New("cannot delete your own account")
+	ErrCannotDeleteLastAdmin    = errors.New("cannot delete the last admin account")
+	ErrCannotDemoteLastAdmin    = errors.New("cannot remove admin role from the last admin account")
 )
 
 // Principal describes the authenticated app identity.
@@ -195,6 +201,175 @@ func (s *Service) RevokeSession(ctx context.Context, token string) error {
 		return nil
 	}
 	return s.store.DeleteSessionByTokenHash(hashToken(token))
+}
+
+func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassword, newPassword, keepSessionToken string) error {
+	_ = ctx
+	if s.store == nil {
+		return fmt.Errorf("auth store not configured")
+	}
+	if err := ValidatePassword(newPassword); err != nil {
+		return err
+	}
+
+	u, err := s.store.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+	provider := strings.ToLower(strings.TrimSpace(u.AuthProvider))
+	if provider != "" && provider != ProviderLocal {
+		return ErrPasswordChangeNotAllowed
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(currentPassword)) != nil {
+		return ErrInvalidCurrentPassword
+	}
+
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	if err := s.store.UpdateUserPasswordHash(userID, hash); err != nil {
+		return err
+	}
+
+	keepSessionToken = strings.TrimSpace(keepSessionToken)
+	keepTokenHash := ""
+	if keepSessionToken != "" {
+		keepTokenHash = hashToken(keepSessionToken)
+	}
+	return s.store.DeleteSessionsByUserIDExceptTokenHash(userID, keepTokenHash)
+}
+
+func (s *Service) ListUsers(ctx context.Context) ([]store.AppUser, error) {
+	_ = ctx
+	if s.store == nil {
+		return nil, fmt.Errorf("auth store not configured")
+	}
+	users, err := s.store.ListUsers()
+	if err != nil {
+		return nil, err
+	}
+	if users == nil {
+		users = []store.AppUser{}
+	}
+	return users, nil
+}
+
+func (s *Service) CreateUser(ctx context.Context, username, password string, isAdmin bool) (*store.AppUser, error) {
+	_ = ctx
+	if s.store == nil {
+		return nil, fmt.Errorf("auth store not configured")
+	}
+	if err := ValidateUsername(username); err != nil {
+		return nil, err
+	}
+	if err := ValidatePassword(password); err != nil {
+		return nil, err
+	}
+	normalizedUsername := normalizeUsername(username)
+	if _, err := s.store.GetUserByUsername(normalizedUsername); err == nil {
+		return nil, ErrUsernameTaken
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	hash, err := hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+	u := &store.AppUser{
+		Username:     normalizedUsername,
+		PasswordHash: hash,
+		AuthProvider: ProviderLocal,
+		IsAdmin:      isAdmin,
+	}
+	id, err := s.store.CreateUser(u)
+	if err != nil {
+		return nil, err
+	}
+	return s.store.GetUserByID(id)
+}
+
+func (s *Service) UpdateUser(ctx context.Context, userID int64, username string, isAdmin bool, newPassword string) (*store.AppUser, error) {
+	_ = ctx
+	if s.store == nil {
+		return nil, fmt.Errorf("auth store not configured")
+	}
+	if err := ValidateUsername(username); err != nil {
+		return nil, err
+	}
+	existing, err := s.store.GetUserByID(userID)
+	if err != nil {
+		return nil, err
+	}
+	normalizedUsername := normalizeUsername(username)
+	if other, err := s.store.GetUserByUsername(normalizedUsername); err == nil && other.ID != userID {
+		return nil, ErrUsernameTaken
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	if existing.IsAdmin && !isAdmin {
+		adminCount, err := s.store.CountAdminUsers()
+		if err != nil {
+			return nil, err
+		}
+		if adminCount <= 1 {
+			return nil, ErrCannotDemoteLastAdmin
+		}
+	}
+
+	existing.Username = normalizedUsername
+	existing.IsAdmin = isAdmin
+	if err := s.store.UpdateUserProfile(existing); err != nil {
+		return nil, err
+	}
+
+	trimmedPassword := strings.TrimSpace(newPassword)
+	if trimmedPassword != "" {
+		if err := ValidatePassword(trimmedPassword); err != nil {
+			return nil, err
+		}
+		hash, err := hashPassword(trimmedPassword)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.store.UpdateUserPasswordHash(userID, hash); err != nil {
+			return nil, err
+		}
+		if err := s.store.DeleteSessionsByUserIDExceptTokenHash(userID, ""); err != nil {
+			return nil, err
+		}
+	}
+
+	return s.store.GetUserByID(userID)
+}
+
+func (s *Service) DeleteUser(ctx context.Context, actorUserID, targetUserID int64) error {
+	_ = ctx
+	if s.store == nil {
+		return fmt.Errorf("auth store not configured")
+	}
+	if actorUserID == targetUserID {
+		return ErrCannotDeleteSelf
+	}
+	target, err := s.store.GetUserByID(targetUserID)
+	if err != nil {
+		return err
+	}
+	if target.IsAdmin {
+		adminCount, err := s.store.CountAdminUsers()
+		if err != nil {
+			return err
+		}
+		if adminCount <= 1 {
+			return ErrCannotDeleteLastAdmin
+		}
+	}
+	if err := s.store.DeleteSessionsByUserIDExceptTokenHash(targetUserID, ""); err != nil {
+		return err
+	}
+	return s.store.DeleteUser(targetUserID)
 }
 
 func BootstrapInitialAdmin(s *store.Store, username, password string) (bool, error) {

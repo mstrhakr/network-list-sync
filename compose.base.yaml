@@ -1,0 +1,24 @@
+
+services:
+  network-list-sync-base:
+    container_name: network-list-sync
+    environment:
+      PUID: "99"
+      PGID: "100"
+      UMASK: "022"
+    volumes:
+      - /mnt/user/appdata/network-list-sync:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - backend
+
+networks:
+  backend:
+    name: backend
+    external: true

@@ -1,5 +1,8 @@
 const API = '/api';
 const browserFetch = window.fetch.bind(window);
+const principalData = window.NLS_PRINCIPAL || {};
+const isAdminUser = principalData.isAdmin === true;
+const currentUsername = typeof principalData.username === 'string' ? principalData.username : '';
 let jobs = [];
 let controllers = [];
 const logDetailsMap = new Map();
@@ -32,6 +35,15 @@ let controllerProviderChangeBound = false;
 let jobsRefreshTimer = null;
 let healthRefreshTimer = null;
 let authRedirectInProgress = false;
+let setupWizardActive = false;
+let setupWizardStep = 'endpoint';
+let setupWizardSuppressed = false;
+
+function ensureAdminAction() {
+    if (isAdminUser) return true;
+    showToast('Admin privileges required', 'error');
+    return false;
+}
 
 function clearRefreshTimers() {
     if (jobsRefreshTimer) {
@@ -283,6 +295,127 @@ function bindControllerProviderChange() {
     controllerProviderChangeBound = true;
 }
 
+function markSetupWizardStepState(endpointState, dnsState, jobState) {
+    var endpointEl = document.getElementById('wizardStepEndpoint');
+    var dnsEl = document.getElementById('wizardStepDNS');
+    var jobEl = document.getElementById('wizardStepJob');
+    if (!endpointEl || !dnsEl || !jobEl) return;
+
+    endpointEl.classList.toggle('active', endpointState === 'active');
+    endpointEl.classList.toggle('completed', endpointState === 'completed');
+    dnsEl.classList.toggle('active', dnsState === 'active');
+    dnsEl.classList.toggle('completed', dnsState === 'completed');
+    jobEl.classList.toggle('active', jobState === 'active');
+    jobEl.classList.toggle('completed', jobState === 'completed');
+}
+
+function updateSetupWizardUI() {
+    var lead = document.getElementById('setupWizardLead');
+    var hint = document.getElementById('setupWizardHint');
+    var primary = document.getElementById('setupWizardPrimaryBtn');
+    var secondary = document.getElementById('setupWizardSecondaryBtn');
+    if (!lead || !hint || !primary || !secondary) return;
+
+    if (setupWizardStep === 'endpoint') {
+        markSetupWizardStepState('active', 'pending', 'pending');
+        lead.textContent = 'No endpoints found. Start by adding the first endpoint connection.';
+        hint.textContent = 'This is required before creating sync jobs.';
+        primary.textContent = 'Add Endpoint';
+        secondary.textContent = 'Skip for Now';
+        return;
+    }
+    if (setupWizardStep === 'dns') {
+        markSetupWizardStepState('completed', 'active', 'pending');
+        lead.textContent = 'Optional: add a custom DNS server for hostname resolution.';
+        hint.textContent = 'You can skip this step and use built-in public resolvers.';
+        primary.textContent = 'Add DNS Server';
+        secondary.textContent = 'Skip DNS Step';
+        return;
+    }
+
+    markSetupWizardStepState('completed', 'completed', 'active');
+    lead.textContent = 'Create the first sync job to complete setup.';
+    hint.textContent = 'Select the endpoint, choose a target list, then save.';
+    primary.textContent = 'Create Sync Job';
+    secondary.textContent = 'Finish Later';
+}
+
+function showSetupWizard(step) {
+    if (!isAdminUser) return;
+    if (!Array.isArray(controllers) || controllers.length !== 0) return;
+    setupWizardActive = true;
+    setupWizardStep = step || 'endpoint';
+    updateSetupWizardUI();
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+function hideSetupWizard(options) {
+    var opts = options || {};
+    setupWizardActive = false;
+    if (opts.suppressUntilReload) {
+        setupWizardSuppressed = true;
+    }
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+function revealSetupWizardIfActive() {
+    if (!setupWizardActive) return;
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        updateSetupWizardUI();
+        modal.classList.remove('hidden');
+    }
+}
+
+function maybeShowSetupWizard() {
+    if (!isAdminUser) return;
+    if (setupWizardSuppressed || setupWizardActive) return;
+    if (!Array.isArray(controllers) || controllers.length !== 0) return;
+    showSetupWizard('endpoint');
+}
+
+function advanceSetupWizard(step) {
+    if (!setupWizardActive) return;
+    setupWizardStep = step;
+    revealSetupWizardIfActive();
+}
+
+function setupWizardPrimaryAction() {
+    if (!setupWizardActive) return;
+    var modal = document.getElementById('setupWizardModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    if (setupWizardStep === 'endpoint') {
+        showControllerForm();
+        return;
+    }
+    if (setupWizardStep === 'dns') {
+        showDNSServerForm();
+        return;
+    }
+    showJobModal();
+}
+
+function setupWizardSecondaryAction() {
+    if (!setupWizardActive) return;
+    if (setupWizardStep === 'endpoint') {
+        hideSetupWizard({ suppressUntilReload: true });
+        return;
+    }
+    if (setupWizardStep === 'dns') {
+        advanceSetupWizard('job');
+        return;
+    }
+    hideSetupWizard({ suppressUntilReload: true });
+}
+
 async function init() {
     initThemeToggle();
     initJobsTableCustomizer();
@@ -297,6 +430,7 @@ async function init() {
     clearRefreshTimers();
     jobsRefreshTimer = setInterval(loadJobs, 30000);
     healthRefreshTimer = setInterval(checkHealth, 30000);
+    maybeShowSetupWizard();
 }
 
 async function logout() {
@@ -305,6 +439,56 @@ async function logout() {
         await browserFetch('/logout', { method: 'POST' });
     } finally {
         redirectToLogin();
+    }
+}
+
+function showChangePasswordModal() {
+    var form = document.getElementById('changePasswordForm');
+    if (form) {
+        form.reset();
+    }
+    document.getElementById('changePasswordModal').classList.remove('hidden');
+}
+
+function hideChangePasswordModal() {
+    document.getElementById('changePasswordModal').classList.add('hidden');
+}
+
+async function submitChangePassword(event) {
+    event.preventDefault();
+
+    var currentPassword = document.getElementById('currentPassword').value;
+    var newPassword = document.getElementById('newPassword').value;
+    var confirmPassword = document.getElementById('confirmPassword').value;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        showToast('All password fields are required', 'error');
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        showToast('Password confirmation does not match', 'error');
+        return;
+    }
+
+    try {
+        var resp = await fetch(API + '/account/password', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+                confirm_password: confirmPassword,
+            }),
+        });
+        var body = await resp.json();
+        if (!resp.ok) {
+            throw new Error((body && body.error) ? body.error : 'Password update failed');
+        }
+
+        hideChangePasswordModal();
+        showToast('Password updated', 'success');
+    } catch (err) {
+        showToast(err.message, 'error');
     }
 }
 
@@ -333,6 +517,9 @@ async function loadControllers() {
         const resp = await fetch(API + '/instances');
         if (!resp.ok) return false;
         controllers = await resp.json();
+        if (setupWizardActive && controllers.length > 0 && setupWizardStep === 'endpoint') {
+            advanceSetupWizard('dns');
+        }
         return true;
     } catch (err) {
         console.error('Load instances error:', err);
@@ -341,6 +528,7 @@ async function loadControllers() {
 }
 
 function showControllerModal() {
+    if (!ensureAdminAction()) return;
     loadControllers().then(function() {
         renderControllerTable();
         hideControllerForm();
@@ -350,6 +538,7 @@ function showControllerModal() {
 
 function hideControllerModal() {
     document.getElementById('controllerModal').classList.add('hidden');
+    hideControllerForm();
 }
 
 function renderControllerTable() {
@@ -378,7 +567,9 @@ function renderControllerTable() {
 }
 
 function showControllerForm(ctrl) {
-    document.getElementById('controllerFormWrap').classList.remove('hidden');
+    if (!ensureAdminAction()) return;
+    document.getElementById('controllerEditorModal').classList.remove('hidden');
+    document.getElementById('controllerEditorTitle').textContent = ctrl ? 'Edit Endpoint' : 'Add Endpoint';
     if (ctrl) {
         document.getElementById('ctrlId').value = ctrl.id;
         document.getElementById('ctrlProvider').value = (ctrl.provider || 'unifi').toLowerCase();
@@ -403,7 +594,8 @@ function showControllerForm(ctrl) {
 }
 
 function hideControllerForm() {
-    document.getElementById('controllerFormWrap').classList.add('hidden');
+    document.getElementById('controllerEditorModal').classList.add('hidden');
+    revealSetupWizardIfActive();
 }
 
 function editController(id) {
@@ -413,6 +605,7 @@ function editController(id) {
 
 async function saveController(event) {
     event.preventDefault();
+    if (!ensureAdminAction()) return;
     var id = document.getElementById('ctrlId').value;
     var provider = document.getElementById('ctrlProvider').value || 'unifi';
     var providerUI = getControllerProviderUI(provider);
@@ -430,6 +623,7 @@ async function saveController(event) {
     }
     var url = id ? API + '/instances/' + id : API + '/instances';
     var method = id ? 'PUT' : 'POST';
+    var creating = !id;
     try {
         var resp = await fetch(url, {
             method: method,
@@ -444,12 +638,16 @@ async function saveController(event) {
         renderControllerTable();
         hideControllerForm();
         showToast(id ? 'Endpoint updated' : 'Endpoint added', 'success');
+        if (creating && setupWizardActive) {
+            advanceSetupWizard('dns');
+        }
     } catch (err) {
         showToast(err.message, 'error');
     }
 }
 
 async function testController() {
+    if (!ensureAdminAction()) return;
     var id = document.getElementById('ctrlId').value;
     var provider = document.getElementById('ctrlProvider').value || 'unifi';
     var providerUI = getControllerProviderUI(provider);
@@ -483,6 +681,7 @@ async function testController() {
 }
 
 async function deleteController(id) {
+    if (!ensureAdminAction()) return;
     if (!confirm('Delete this endpoint? Jobs using it will stop working.')) return;
     try {
         var resp = await fetch(API + '/instances/' + id, { method: 'DELETE' });
@@ -490,6 +689,7 @@ async function deleteController(id) {
         await loadControllers();
         renderControllerTable();
         showToast('Endpoint deleted', 'success');
+        maybeShowSetupWizard();
     } catch (err) {
         showToast(err.message, 'error');
     }
@@ -739,6 +939,7 @@ async function loadJobs() {
 
 async function saveJob(event) {
     event.preventDefault();
+    if (!ensureAdminAction()) return;
     const id = document.getElementById('jobId').value;
     const selectedSchedulePreset = document.getElementById('schedulePreset').value;
     const scheduleEnabled = selectedSchedulePreset === 'manual' ? true : document.getElementById('enabled').checked;
@@ -786,6 +987,7 @@ async function saveJob(event) {
 
     const url = id ? API + '/jobs/' + id : API + '/jobs';
     const method = id ? 'PUT' : 'POST';
+    const creating = !id;
 
     try {
         const resp = await fetch(url, {
@@ -800,12 +1002,16 @@ async function saveJob(event) {
         hideJobModal();
         await loadJobs();
         showToast(id ? 'Job updated' : 'Job created', 'success');
+        if (creating && setupWizardActive) {
+            hideSetupWizard({ suppressUntilReload: true });
+        }
     } catch (err) {
         showToast(err.message, 'error');
     }
 }
 
 async function deleteJob(id) {
+    if (!ensureAdminAction()) return;
     if (!confirm('Delete this sync job and its run history?')) return;
     try {
         const resp = await fetch(API + '/jobs/' + id, { method: 'DELETE' });
@@ -907,6 +1113,7 @@ function renderNetworkList(networkList) {
 }
 
 async function previewResolve() {
+    if (!isAdminUser) return;
     const hostnames = document.getElementById('hostnames').value;
     const preview = document.getElementById('resolvePreview');
     if (!hostnames.trim()) {
@@ -957,6 +1164,13 @@ function renderJobCards(animateCards) {
         const targets = Array.isArray(job.targets) ? job.targets : [];
         const endpointCount = targets.length > 0 ? targets.length : 1;
 
+        var adminButtons = '';
+        if (isAdminUser) {
+            adminButtons =
+                '<button class="btn btn-small btn-secondary" onclick="editJob(' + job.id + ')">Edit</button>' +
+                '<button class="btn btn-small btn-danger" onclick="deleteJob(' + job.id + ')">Delete</button>';
+        }
+
         return '<div class="' + cardClass + '" oncontextmenu="return openJobActionsMenu(event, ' + job.id + ')">' +
             '<div class="job-header">' +
                 '<h3>' + escapeHtml(job.name) + '</h3>' +
@@ -980,10 +1194,9 @@ function renderJobCards(animateCards) {
             '<div class="job-actions">' +
                 '<div class="job-actions-desktop">' +
                     '<button class="btn btn-small btn-primary" onclick="runJob(' + job.id + ')">&#9654; Run Now</button>' +
-                    '<button class="btn btn-small btn-secondary" onclick="editJob(' + job.id + ')">Edit</button>' +
                     '<button class="btn btn-small btn-secondary" onclick="showNetworkList(' + job.id + ')">View</button>' +
                     '<button class="btn btn-small btn-secondary" onclick="showLogs(' + job.id + ')">Logs</button>' +
-                    '<button class="btn btn-small btn-danger" onclick="deleteJob(' + job.id + ')">Delete</button>' +
+                    adminButtons +
                 '</div>' +
                 '<button class="btn btn-small btn-secondary job-actions-menu-btn" onclick="openJobActionsMenuForButton(event, ' + job.id + ')">Actions</button>' +
             '</div>' +
@@ -1112,6 +1325,11 @@ function triggerJobActionFromMenu(action) {
     hideJobActionsMenu();
     if (!jobId) return;
 
+    if (!isAdminUser && (action === 'edit' || action === 'delete')) {
+        showToast('Admin privileges required', 'error');
+        return;
+    }
+
     if (action === 'run') {
         runJob(jobId);
     } else if (action === 'edit') {
@@ -1170,6 +1388,7 @@ function toggleDetails(logId, btn) {
 }
 
 function showJobModal(job) {
+    if (!ensureAdminAction()) return;
     const modal = document.getElementById('jobModal');
     const title = document.getElementById('jobModalTitle');
 
@@ -1221,6 +1440,7 @@ function showJobModal(job) {
 
 function hideJobModal() {
     document.getElementById('jobModal').classList.add('hidden');
+    revealSetupWizardIfActive();
 }
 
 function hideLogsModal() {
@@ -1228,6 +1448,7 @@ function hideLogsModal() {
 }
 
 function editJob(id) {
+    if (!ensureAdminAction()) return;
     const job = jobs.find(function(item) { return item.id === id; });
     if (job) showJobModal(job);
 }
@@ -1272,6 +1493,7 @@ async function loadDNSServers() {
 }
 
 function showDNSModal() {
+    if (!ensureAdminAction()) return;
     loadDNSServers().then(function() {
         renderDNSTable();
         hideDNSServerForm();
@@ -1281,6 +1503,7 @@ function showDNSModal() {
 
 function hideDNSModal() {
     document.getElementById('dnsModal').classList.add('hidden');
+    hideDNSServerForm();
 }
 
 function renderDNSTable() {
@@ -1305,7 +1528,9 @@ function renderDNSTable() {
 }
 
 function showDNSServerForm(srv) {
-    document.getElementById('dnsFormWrap').classList.remove('hidden');
+    if (!ensureAdminAction()) return;
+    document.getElementById('dnsEditorModal').classList.remove('hidden');
+    document.getElementById('dnsEditorTitle').textContent = srv ? 'Edit DNS Server' : 'Add DNS Server';
     if (srv) {
         document.getElementById('dnsId').value = srv.id;
         document.getElementById('dnsName').value = srv.name;
@@ -1319,7 +1544,8 @@ function showDNSServerForm(srv) {
 }
 
 function hideDNSServerForm() {
-    document.getElementById('dnsFormWrap').classList.add('hidden');
+    document.getElementById('dnsEditorModal').classList.add('hidden');
+    revealSetupWizardIfActive();
 }
 
 function editDNSServer(id) {
@@ -1329,6 +1555,7 @@ function editDNSServer(id) {
 
 async function saveDNSServer(event) {
     event.preventDefault();
+    if (!ensureAdminAction()) return;
     var id = document.getElementById('dnsId').value;
     var data = {
         name: document.getElementById('dnsName').value,
@@ -1337,6 +1564,7 @@ async function saveDNSServer(event) {
     };
     var url = id ? API + '/dns-servers/' + id : API + '/dns-servers';
     var method = id ? 'PUT' : 'POST';
+    var creating = !id;
     try {
         var resp = await fetch(url, {
             method: method,
@@ -1352,12 +1580,16 @@ async function saveDNSServer(event) {
         hideDNSServerForm();
         showToast(id ? 'DNS server updated' : 'DNS server added', 'success');
         checkHealth();
+        if (creating && setupWizardActive) {
+            advanceSetupWizard('job');
+        }
     } catch (err) {
         showToast(err.message, 'error');
     }
 }
 
 async function deleteDNSServer(id) {
+    if (!ensureAdminAction()) return;
     if (!confirm('Delete this DNS server?')) return;
     try {
         var resp = await fetch(API + '/dns-servers/' + id, { method: 'DELETE' });
@@ -1366,6 +1598,146 @@ async function deleteDNSServer(id) {
         renderDNSTable();
         showToast('DNS server deleted', 'success');
         checkHealth();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+let users = [];
+
+async function loadUsers() {
+    try {
+        const resp = await fetch(API + '/users');
+        if (!resp.ok) throw new Error('Failed to load users');
+        users = await resp.json();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function showUsersModal() {
+    if (!ensureAdminAction()) return;
+    loadUsers().then(function() {
+        renderUsersTable();
+        hideUserForm();
+        document.getElementById('usersModal').classList.remove('hidden');
+    });
+}
+
+function hideUsersModal() {
+    document.getElementById('usersModal').classList.add('hidden');
+    hideUserForm();
+}
+
+function renderUsersTable() {
+    var tbody = document.getElementById('usersTableBody');
+    var noMsg = document.getElementById('noUsersMsg');
+    if (!tbody || !noMsg) return;
+    if (!users.length) {
+        tbody.innerHTML = '';
+        noMsg.classList.remove('hidden');
+        return;
+    }
+    noMsg.classList.add('hidden');
+    tbody.innerHTML = users.map(function(u) {
+        var role = u.is_admin ? '<span class="badge badge-success">Admin</span>' : '<span class="badge badge-warning">User</span>';
+        var actions =
+            '<button class="btn btn-small btn-secondary" onclick="editUser(' + u.id + ')">Edit</button>' +
+            (u.username === currentUsername ? '' : ' <button class="btn btn-small btn-danger" onclick="deleteUserAccount(' + u.id + ')">Delete</button>');
+        return '<tr>' +
+            '<td>' + escapeHtml(u.username) + '</td>' +
+            '<td>' + role + '</td>' +
+            '<td>' + escapeHtml(u.auth_provider || 'local') + '</td>' +
+            '<td>' + formatTime(u.updated_at) + '</td>' +
+            '<td style="white-space:nowrap">' + actions + '</td>' +
+            '</tr>';
+    }).join('');
+}
+
+function showUserForm(user) {
+    if (!ensureAdminAction()) return;
+    var modal = document.getElementById('userEditorModal');
+    var title = document.getElementById('userEditorTitle');
+    var passwordHint = document.getElementById('userPasswordHint');
+    var passwordInput = document.getElementById('userPassword');
+
+    modal.classList.remove('hidden');
+    if (user) {
+        title.textContent = 'Edit User';
+        document.getElementById('userId').value = user.id;
+        document.getElementById('userUsername').value = user.username;
+        document.getElementById('userIsAdmin').checked = !!user.is_admin;
+        passwordInput.value = '';
+        passwordInput.required = false;
+        passwordInput.placeholder = 'Leave blank to keep current password';
+        passwordHint.textContent = 'Optional: set to rotate this user password.';
+    } else {
+        title.textContent = 'Add User';
+        document.getElementById('userForm').reset();
+        document.getElementById('userId').value = '';
+        document.getElementById('userIsAdmin').checked = false;
+        passwordInput.required = true;
+        passwordInput.placeholder = 'At least 12 characters';
+        passwordHint.textContent = 'Required for new users.';
+    }
+}
+
+function hideUserForm() {
+    var modal = document.getElementById('userEditorModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+function editUser(id) {
+    var user = users.find(function(item) { return item.id === id; });
+    if (user) showUserForm(user);
+}
+
+async function saveUser(event) {
+    event.preventDefault();
+    if (!ensureAdminAction()) return;
+
+    var id = document.getElementById('userId').value;
+    var data = {
+        username: document.getElementById('userUsername').value,
+        password: document.getElementById('userPassword').value,
+        is_admin: document.getElementById('userIsAdmin').checked,
+    };
+    var url = id ? API + '/users/' + id : API + '/users';
+    var method = id ? 'PUT' : 'POST';
+
+    try {
+        var resp = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        var body = await resp.json().catch(function() { return {}; });
+        if (!resp.ok) {
+            throw new Error(body.error || 'Request failed');
+        }
+        await loadUsers();
+        renderUsersTable();
+        hideUserForm();
+        showToast(id ? 'User updated' : 'User created', 'success');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+async function deleteUserAccount(id) {
+    if (!ensureAdminAction()) return;
+    if (!confirm('Delete this user?')) return;
+    try {
+        var resp = await fetch(API + '/users/' + id, { method: 'DELETE' });
+        if (!resp.ok) {
+            var body = await resp.json().catch(function() { return {}; });
+            throw new Error(body.error || 'Delete failed');
+        }
+        await loadUsers();
+        renderUsersTable();
+        showToast('User deleted', 'success');
     } catch (err) {
         showToast(err.message, 'error');
     }

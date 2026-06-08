@@ -2,7 +2,9 @@ package web
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"io"
 	"io/fs"
@@ -50,6 +52,11 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.loginSubmit)
 	mux.HandleFunc("POST /logout", h.logout)
+	mux.HandleFunc("POST /api/account/password", h.changePassword)
+	mux.HandleFunc("GET /api/users", h.listUsers)
+	mux.HandleFunc("POST /api/users", h.createUser)
+	mux.HandleFunc("PUT /api/users/{id}", h.updateUser)
+	mux.HandleFunc("DELETE /api/users/{id}", h.deleteUser)
 
 	mux.HandleFunc("GET /api/instances", h.listControllers)
 	mux.HandleFunc("POST /api/instances", h.createController)
@@ -226,6 +233,9 @@ func (h *Handler) listControllers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createController(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	var c store.Controller
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -266,6 +276,9 @@ func (h *Handler) getController(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateController(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid endpoint ID")
@@ -301,6 +314,9 @@ func (h *Handler) updateController(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteController(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid endpoint ID")
@@ -314,6 +330,9 @@ func (h *Handler) deleteController(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) testController(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	var req struct {
 		ControllerID  int64  `json:"instance_id"`
 		Provider      string `json:"provider"`
@@ -381,6 +400,9 @@ func (h *Handler) testController(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listNetworkLists(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid endpoint ID")
@@ -419,6 +441,9 @@ func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	var job store.SyncJob
 	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -469,6 +494,9 @@ func (h *Handler) getJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid job ID")
@@ -503,6 +531,9 @@ func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteJob(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid job ID")
@@ -609,6 +640,9 @@ func (h *Handler) getJobLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) resolveHostnames(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	var input struct {
 		Hostnames string `json:"hostnames"`
 	}
@@ -660,6 +694,9 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listDNSServers(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	servers, err := h.store.ListDNSServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -672,6 +709,9 @@ func (h *Handler) listDNSServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createDNSServer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	var s store.DNSServer
 	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -691,6 +731,9 @@ func (h *Handler) createDNSServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getDNSServer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid DNS server ID")
@@ -705,6 +748,9 @@ func (h *Handler) getDNSServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateDNSServer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid DNS server ID")
@@ -724,6 +770,9 @@ func (h *Handler) updateDNSServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteDNSServer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid DNS server ID")
@@ -738,6 +787,139 @@ func (h *Handler) deleteDNSServer(w http.ResponseWriter, r *http.Request) {
 
 func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("id"), 10, 64)
+}
+
+func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	principal := principalFromContext(r.Context())
+	if principal == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return false
+	}
+	if !principal.IsAdmin {
+		writeError(w, http.StatusForbidden, "admin privileges required")
+		return false
+	}
+	return true
+}
+
+func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
+	if h.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth is not configured")
+		return
+	}
+	users, err := h.auth.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list users")
+		return
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
+	if h.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth is not configured")
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		IsAdmin  bool   `json:"is_admin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	u, err := h.auth.CreateUser(r.Context(), strings.TrimSpace(req.Username), req.Password, req.IsAdmin)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrUsernameTaken):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, u)
+}
+
+func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
+	if h.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth is not configured")
+		return
+	}
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user ID")
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		IsAdmin  bool   `json:"is_admin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	u, err := h.auth.UpdateUser(r.Context(), id, strings.TrimSpace(req.Username), req.IsAdmin, req.Password)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(w, http.StatusNotFound, "user not found")
+		case errors.Is(err, auth.ErrUsernameTaken):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, auth.ErrCannotDemoteLastAdmin):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, u)
+}
+
+func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
+	if h.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth is not configured")
+		return
+	}
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user ID")
+		return
+	}
+	principal := principalFromContext(r.Context())
+	if principal == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	err = h.auth.DeleteUser(r.Context(), principal.UserID, id)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(w, http.StatusNotFound, "user not found")
+		case errors.Is(err, auth.ErrCannotDeleteSelf):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, auth.ErrCannotDeleteLastAdmin):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

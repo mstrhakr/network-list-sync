@@ -2,21 +2,17 @@
 <div id="toast" class="toast hidden"></div>
 <div id="jobContextMenu" class="job-context-menu hidden" role="menu" aria-label="Job actions menu">
     <button class="job-context-item" type="button" onclick="triggerJobActionFromMenu('run')">Run Now</button>
+    {{if and .Principal .Principal.IsAdmin}}
     <button class="job-context-item" type="button" onclick="triggerJobActionFromMenu('edit')">Edit</button>
+    {{end}}
     <button class="job-context-item" type="button" onclick="triggerJobActionFromMenu('view')">View Target List</button>
     <button class="job-context-item" type="button" onclick="triggerJobActionFromMenu('logs')">Logs</button>
+    {{if and .Principal .Principal.IsAdmin}}
     <div class="job-context-sep"></div>
     <button class="job-context-item job-context-item-danger" type="button" onclick="triggerJobActionFromMenu('delete')">Delete</button>
+    {{end}}
 </div>
 <div id="headerMobileMenu" class="header-mobile-menu hidden" role="menu" aria-label="Header mobile actions menu" onclick="event.stopPropagation()">
-    {{if .Principal}}
-    <div class="header-menu-user" title="Signed in user">Signed in as <strong>{{.Principal.Username}}</strong></div>
-    <div class="job-context-sep"></div>
-    {{end}}
-    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showDNSModal();">DNS Servers</button>
-    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showControllerModal();">Endpoints</button>
-    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showJobModal();">+ New Sync Job</button>
-    <div class="job-context-sep"></div>
     <label class="header-menu-theme" title="Toggle theme" onclick="event.stopPropagation()">
         <span>Theme</span>
         <span class="theme-toggle">
@@ -27,6 +23,19 @@
         </span>
     </label>
     <div class="job-context-sep"></div>
+    {{if .Principal.IsAdmin}}
+    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showJobModal();">+ New Sync Job</button>
+    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showControllerModal();">Endpoints</button>
+    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showDNSModal();">DNS Servers</button>
+    <div class="job-context-sep"></div>
+    {{end}}
+    <div class="header-menu-user" title="Signed in user">Signed in as <strong>{{.Principal.Username}}</strong></div>
+    {{if eq .Principal.AuthProvider "local"}}
+    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showChangePasswordModal();">Change Password</button>
+    {{end}}
+    {{if .Principal.IsAdmin}}
+    <button class="job-context-item" type="button" onclick="hideHeaderMobileMenu(); showUsersModal();">Users</button>
+    {{end}}
     <button class="job-context-item job-context-item-danger" type="button" onclick="hideHeaderMobileMenu(); logout();">Logout</button>
 </div>
 {{end}}

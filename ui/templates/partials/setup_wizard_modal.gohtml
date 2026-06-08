@@ -1,0 +1,42 @@
+{{define "setup-wizard-modal"}}
+<div id="setupWizardModal" class="modal hidden">
+    <div class="modal-overlay" onclick="setupWizardSecondaryAction()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>First-Time Setup</h2>
+            <button class="modal-close" onclick="setupWizardSecondaryAction()">&times;</button>
+        </div>
+        <div style="padding:1rem;">
+            <p id="setupWizardLead" style="margin-bottom:0.75rem;"></p>
+            <div class="setup-wizard-steps" style="margin-bottom:0.75rem;">
+                <div id="wizardStepEndpoint" class="setup-wizard-step">
+                    <span class="setup-wizard-step-index">1</span>
+                    <div>
+                        <strong>Add Endpoint</strong>
+                        <p>Connect the source system where target lists are managed.</p>
+                    </div>
+                </div>
+                <div id="wizardStepDNS" class="setup-wizard-step">
+                    <span class="setup-wizard-step-index">2</span>
+                    <div>
+                        <strong>Add DNS Server (Optional)</strong>
+                        <p>Use custom resolvers for internal DNS names.</p>
+                    </div>
+                </div>
+                <div id="wizardStepJob" class="setup-wizard-step">
+                    <span class="setup-wizard-step-index">3</span>
+                    <div>
+                        <strong>Create Sync Job</strong>
+                        <p>Choose endpoint + target list, then configure hostname sync.</p>
+                    </div>
+                </div>
+            </div>
+            <p id="setupWizardHint" class="hint" style="margin-bottom:1rem;"></p>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button id="setupWizardSecondaryBtn" type="button" class="btn btn-secondary btn-small" onclick="setupWizardSecondaryAction()">Skip for Now</button>
+                <button id="setupWizardPrimaryBtn" type="button" class="btn btn-primary btn-small" onclick="setupWizardPrimaryAction()">Add Endpoint</button>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
