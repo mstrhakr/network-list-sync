@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -15,10 +16,12 @@ import (
 
 // SyncResult captures the outcome of a single sync execution.
 type SyncResult struct {
-	Status      string `json:"status"`
-	Message     string `json:"message"`
-	ChangesMade int    `json:"changes_made"`
-	Details     string `json:"details"`
+	Status      string                    `json:"status"`
+	Message     string                    `json:"message"`
+	ChangesMade int                       `json:"changes_made"`
+	Details     string                    `json:"details"`
+	Stats       OptimizationStats         `json:"stats"`
+	Targets     []store.RunTargetSnapshot `json:"targets,omitempty"`
 }
 
 // Syncer executes DNS-to-IP-list sync operations across providers.
@@ -63,6 +66,8 @@ func (s *Syncer) Run(db *store.Store, jobID int64) SyncResult {
 	runLog.Message = result.Message
 	runLog.ChangesMade = result.ChangesMade
 	runLog.Details = result.Details
+	runLog.Stats, _ = json.Marshal(result.Stats)
+	runLog.Targets = result.Targets
 	db.UpdateRunLog(runLog)
 	db.UpdateJobLastRun(jobID, finished, result.Status+": "+result.Message)
 
@@ -78,13 +83,14 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 	if len(servers) == 0 {
 		return SyncResult{Status: "error", Message: "no DNS servers configured: add at least one enabled DNS server"}
 	}
-	hostIPs, err := ResolveHostnames(job.Hostnames, servers)
+	hostIPs, resolutionStats, err := ResolveHostnamesWithStats(job.Hostnames, servers)
 	if err != nil {
 		return SyncResult{Status: "error", Message: fmt.Sprintf("DNS resolution: %v", err)}
 	}
 
 	now := time.Now().UTC()
 	retention := observedIPRetention(job)
+	inputEntries := resolutionStats.ResolvedEntries
 	if retention > 0 {
 		retentionCutoff := now.Add(-retention).Format(time.RFC3339)
 		if err := db.UpsertObservedIPs(job.ID, hostIPs, now.Format(time.RFC3339)); err != nil {
@@ -97,6 +103,7 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		if err != nil {
 			return SyncResult{Status: "error", Message: fmt.Sprintf("load observed IPs: %v", err)}
 		}
+		inputEntries += countObservedIPsNotCurrent(observedIPs, hostIPs)
 		hostIPs = mergeResolvedIPs(observedIPs, hostIPs)
 	} else {
 		if err := db.DeleteObservedIPs(job.ID); err != nil {
@@ -112,11 +119,18 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		targets = []store.JobTarget{{ControllerID: job.ControllerID, NetworkListID: job.NetworkListID}}
 	}
 
-	newIPs := SortedIPs(hostIPs)
+	newIPs, optimizationStats, err := OptimizeIPv4Entries(SortedIPs(hostIPs), job.CollapseCIDRs)
+	if err != nil {
+		return SyncResult{Status: "error", Message: fmt.Sprintf("optimize IPv4 entries: %v", err)}
+	}
+	optimizationStats.InputEntries = inputEntries
+	optimizationStats.DuplicateEntries = inputEntries - optimizationStats.UniqueEntries
+	optimizationStats.EntriesSaved = inputEntries - len(newIPs)
 	totalChanges := 0
 	succeeded := 0
 	failed := 0
 	var detailParts []string
+	var targetSnapshots []store.RunTargetSnapshot
 
 	for _, target := range targets {
 		ctrl, err := db.GetController(target.ControllerID)
@@ -148,6 +162,18 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		succeeded++
 		totalChanges += result.changes
 		detailParts = append(detailParts, fmt.Sprintf("[%s:%s @ %s]\n%s", providerLabel, target.NetworkListID, ctrl.Name, result.details))
+		if result.sent && len(result.items) > 0 {
+			itemsJSON, marshalErr := json.Marshal(result.items)
+			if marshalErr == nil {
+				targetSnapshots = append(targetSnapshots, store.RunTargetSnapshot{
+					Label:      fmt.Sprintf("%s:%s @ %s", providerLabel, target.NetworkListID, ctrl.Name),
+					Name:       result.listName,
+					Type:       result.listType,
+					EntryCount: len(result.items),
+					Items:      itemsJSON,
+				})
+			}
+		}
 	}
 
 	status := "success"
@@ -161,12 +187,28 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		Message:     message,
 		ChangesMade: totalChanges,
 		Details:     strings.Join(detailParts, "\n\n"),
+		Stats:       optimizationStats,
+		Targets:     targetSnapshots,
 	}
 }
 
+func countObservedIPsNotCurrent(observed, current map[string]string) int {
+	count := 0
+	for ip := range observed {
+		if _, isCurrent := current[ip]; !isCurrent {
+			count++
+		}
+	}
+	return count
+}
+
 type targetSyncResult struct {
-	changes int
-	details string
+	changes  int
+	details  string
+	listName string
+	listType string
+	sent     bool
+	items    []clients.TrafficMatchItem
 }
 
 func (s *Syncer) syncTarget(p clients.Provider, listID string, newIPs []string, hostIPs map[string]string) (targetSyncResult, error) {
@@ -177,14 +219,34 @@ func (s *Syncer) syncTarget(p clients.Provider, listID string, newIPs []string, 
 	oldIPs := ExtractIPsFromItems(nl.Items)
 	sort.Strings(oldIPs)
 	added, removed, kept := DiffIPs(oldIPs, newIPs)
-	if len(added) == 0 && len(removed) == 0 {
+	oldCanonical := append([]string(nil), oldIPs...)
+	newCanonical := append([]string(nil), newIPs...)
+	sort.Strings(oldCanonical)
+	sort.Strings(newCanonical)
+	if equalStrings(oldCanonical, newCanonical) {
 		return targetSyncResult{details: fmt.Sprintf("No changes needed (%d IPs match)", len(kept))}, nil
 	}
 	nl.Items = IPsToItems(newIPs)
 	if err := p.UpdateNetworkList(nl); err != nil {
 		return targetSyncResult{}, fmt.Errorf("update network list: %w", err)
 	}
-	return targetSyncResult{changes: len(added) + len(removed), details: FormatDiff(added, removed, kept, hostIPs)}, nil
+	changes := len(added) + len(removed)
+	if changes == 0 {
+		changes = 1 // representation-only cleanup (duplicates or covered entries)
+	}
+	return targetSyncResult{changes: changes, details: FormatDiff(added, removed, kept, hostIPs), listName: nl.Name, listType: nl.Type, sent: true, items: nl.Items}, nil
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // SortedIPs returns IPv4 addresses and IPv4 CIDRs from a host-IP map in a stable order.
@@ -242,7 +304,11 @@ func DiffIPs(oldIPs, newIPs []string) (added, removed, kept []string) {
 func FormatDiff(added, removed, kept []string, hostIPs map[string]string) string {
 	var b strings.Builder
 	for _, ip := range added {
-		fmt.Fprintf(&b, "+ %s (%s)\n", ip, hostIPs[ip])
+		source := hostIPs[ip]
+		if source == "" {
+			source = "aggregated entries"
+		}
+		fmt.Fprintf(&b, "+ %s (%s)\n", ip, source)
 	}
 	for _, ip := range removed {
 		host := hostIPs[ip]
@@ -252,7 +318,11 @@ func FormatDiff(added, removed, kept []string, hostIPs map[string]string) string
 		fmt.Fprintf(&b, "- %s (%s)\n", ip, host)
 	}
 	for _, ip := range kept {
-		fmt.Fprintf(&b, "  %s (%s)\n", ip, hostIPs[ip])
+		source := hostIPs[ip]
+		if source == "" {
+			source = "aggregated entries"
+		}
+		fmt.Fprintf(&b, "  %s (%s)\n", ip, source)
 	}
 	return b.String()
 }

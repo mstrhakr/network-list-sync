@@ -5,8 +5,73 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mstrhakr/network-list-sync/internal/clients"
 	"github.com/mstrhakr/network-list-sync/internal/store"
 )
+
+type testNetworkListProvider struct {
+	list    *clients.NetworkList
+	updated bool
+}
+
+func (p *testNetworkListProvider) ListNetworkLists() ([]clients.NetworkList, error) {
+	return []clients.NetworkList{*p.list}, nil
+}
+
+func (p *testNetworkListProvider) GetNetworkList(string) (*clients.NetworkList, error) {
+	copy := *p.list
+	copy.Items = append([]clients.TrafficMatchItem(nil), p.list.Items...)
+	return &copy, nil
+}
+
+func (p *testNetworkListProvider) UpdateNetworkList(list *clients.NetworkList) error {
+	p.updated = true
+	p.list = list
+	return nil
+}
+
+func TestSyncTargetWritesMixedIPAndCIDRItems(t *testing.T) {
+	provider := &testNetworkListProvider{list: &clients.NetworkList{
+		ID:    "list-1",
+		Name:  "threat-feed",
+		Type:  "IPV4_ADDRESSES",
+		Items: []clients.TrafficMatchItem{{Type: "IP_ADDRESS", Value: "192.0.2.1"}, {Type: "IP_ADDRESS", Value: "192.0.2.1"}},
+	}}
+
+	result, err := New().syncTarget(provider, "list-1", []string{"192.0.2.0/24", "198.51.100.10"}, nil)
+	if err != nil {
+		t.Fatalf("syncTarget() error = %v", err)
+	}
+	if !provider.updated {
+		t.Fatal("syncTarget() did not replace duplicate/old entries")
+	}
+	if len(result.items) != 2 || result.items[0].Type != "SUBNET" || result.items[1].Type != "IP_ADDRESS" {
+		t.Fatalf("sent items = %+v, want mixed subnet and individual IP", result.items)
+	}
+}
+
+func TestSyncTargetRemovesDuplicateItemsFromExistingList(t *testing.T) {
+	provider := &testNetworkListProvider{list: &clients.NetworkList{
+		ID:   "list-1",
+		Name: "threat-feed",
+		Type: "IPV4_ADDRESSES",
+		Items: []clients.TrafficMatchItem{
+			{Type: "IP_ADDRESS", Value: "192.0.2.1"},
+			{Type: "IP_ADDRESS", Value: "192.0.2.1"},
+		},
+	}}
+
+	result, err := New().syncTarget(provider, "list-1", []string{"192.0.2.1"}, map[string]string{"192.0.2.1": "feed"})
+	if err != nil {
+		t.Fatalf("syncTarget() error = %v", err)
+	}
+	if !provider.updated || result.changes != 1 {
+		t.Fatalf("representation cleanup: updated=%v changes=%d", provider.updated, result.changes)
+	}
+	if len(result.items) != 1 || result.items[0].Value != "192.0.2.1" {
+		t.Fatalf("sent items = %+v, want one deduplicated IP", result.items)
+	}
+}
 
 func TestMergeResolvedIPs_PreservesObservedSuperset(t *testing.T) {
 	observed := map[string]string{
@@ -27,6 +92,33 @@ func TestMergeResolvedIPs_PreservesObservedSuperset(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("mergeResolvedIPs = %v, want %v", got, want)
+	}
+}
+
+func TestCountObservedIPsNotCurrent_ExcludesCurrentAnswers(t *testing.T) {
+	observed := map[string]string{
+		"192.0.2.1": "current.example",
+		"192.0.2.2": "previous.example",
+	}
+	current := map[string]string{"192.0.2.1": "current.example"}
+	if got := countObservedIPsNotCurrent(observed, current); got != 1 {
+		t.Fatalf("countObservedIPsNotCurrent() = %d, want 1", got)
+	}
+}
+
+func TestCurrentResolutionWithRetentionDoesNotInflateOptimizationStats(t *testing.T) {
+	current := map[string]string{"192.0.2.1": "feed.example"}
+	observed := map[string]string{"192.0.2.1": "feed.example"}
+	inputEntries := 1 + countObservedIPsNotCurrent(observed, current)
+	_, stats, err := OptimizeIPv4Entries(SortedIPs(current), false)
+	if err != nil {
+		t.Fatalf("OptimizeIPv4Entries() error = %v", err)
+	}
+	stats.InputEntries = inputEntries
+	stats.DuplicateEntries = inputEntries - stats.UniqueEntries
+	stats.EntriesSaved = inputEntries - stats.OutputEntries
+	if stats.InputEntries != 1 || stats.DuplicateEntries != 0 || stats.EntriesSaved != 0 {
+		t.Fatalf("current retained answer inflated stats: %+v", stats)
 	}
 }
 

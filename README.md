@@ -190,6 +190,12 @@ https://www.cloudflare.com/ips-v4
 3. Use exact release tags in production.
 4. Keep endpoint credentials scoped to minimum required permissions.
 
+### List optimization and run history
+
+Each sync removes duplicate entries and entries already covered by another exact IP/CIDR range. Jobs can optionally collapse fully covered IPv4 ranges into CIDRs. Collapse preserves the exact address set and only creates `/24` or larger networks; the option is off by default. Existing smaller CIDRs are retained as provided.
+
+Run history reports input/unique counts, duplicates and covered entries removed, CIDRs created, and total entries saved. When a run updates a target, its history includes an on-demand view of the exact items sent to that target.
+
 ## API Endpoints
 
 All `/api/*` endpoints require an authenticated session.
@@ -218,6 +224,7 @@ All `/api/*` endpoints require an authenticated session.
 | GET | /api/jobs/{id}/target-list | Get primary or selected target list state |
 | POST | /api/jobs/{id}/run | Trigger immediate run |
 | GET | /api/jobs/{id}/logs | Get job run history |
+| GET | /api/jobs/{id}/logs/{logID}/targets/{targetID} | Get exact target items sent during a run |
 
 ### DNS And Health
 

@@ -969,6 +969,7 @@ async function saveJob(event) {
         hostnames: document.getElementById('hostnames').value,
         schedule: getScheduleValueFromForm(),
         observed_ip_ttl_hours: observedTTLHours,
+        collapse_cidrs: document.getElementById('collapseCIDRs').checked,
         enabled: scheduleEnabled,
     };
 
@@ -1360,21 +1361,58 @@ function renderLogs(logs) {
 
     content.innerHTML =
         '<table class="logs-table"><thead><tr>' +
-        '<th>Started</th><th>Status</th><th>Changes</th><th>Message</th><th>Details</th>' +
+        '<th>Started</th><th>Status</th><th>Changes</th><th>Message</th><th>Optimization</th><th>Details / Sent List</th>' +
         '</tr></thead><tbody>' +
         logs.map(function(log) {
             const badgeClass = log.status === 'success' ? 'badge-success' : log.status === 'running' ? 'badge-warning' : 'badge-error';
+            const stats = log.stats || {};
+            const optimization = log.stats
+                ? 'Input entries: ' + (stats.input_entries || 0) +
+                    '<br>Unique after dedupe: ' + (stats.unique_entries || 0) +
+                    '<br>Duplicates removed: ' + (stats.duplicate_entries || 0) +
+                    '<br>Covered entries: ' + (stats.covered_entries_removed || 0) +
+                    '<br>New CIDRs: ' + (stats.cidrs_created || 0) +
+                    '<br>Final entries: ' + (stats.output_entries || 0) +
+                    '<br>Entries saved: ' + (stats.entries_saved || 0)
+                : '-';
+            const targetButtons = (Array.isArray(log.targets) ? log.targets : []).map(function(target) {
+                return '<button class="btn btn-small btn-secondary" onclick="viewRunTargetSnapshot(' +
+                    log.job_id + ',' + log.id + ',' + target.id + ', this)">' +
+                    'View sent list (' + escapeHtml(target.label) + ', ' + target.entry_count + ')</button>';
+            }).join('<br>');
             return '<tr>' +
                 '<td>' + formatTime(log.started_at) + '</td>' +
                 '<td><span class="badge ' + badgeClass + '">' + escapeHtml(log.status) + '</span></td>' +
                 '<td>' + log.changes_made + '</td>' +
                 '<td>' + escapeHtml(log.message) + '</td>' +
+                '<td>' + optimization + '</td>' +
                 '<td>' + (log.details ?
-                    '<button class="btn btn-small btn-secondary" onclick="toggleDetails(' + log.id + ', this)">Show</button>'
-                    : '-') +
+                    '<button class="btn btn-small btn-secondary" onclick="toggleDetails(' + log.id + ', this)">Details</button>'
+                    : '') + (targetButtons ? (log.details ? '<br>' : '') + targetButtons : (!log.details ? '-' : '')) +
                 '</td></tr>';
         }).join('') +
         '</tbody></table>';
+}
+
+async function viewRunTargetSnapshot(jobId, logId, targetId, button) {
+    button.disabled = true;
+    try {
+        const resp = await fetch(API + '/jobs/' + jobId + '/logs/' + logId + '/targets/' + targetId);
+        const snapshot = await resp.json();
+        if (!resp.ok) throw new Error(snapshot.error || 'Failed to load sent list');
+        const items = Array.isArray(snapshot.items) ? snapshot.items : [];
+        const output = document.createElement('pre');
+        output.className = 'details-block';
+        output.textContent = (snapshot.name ? snapshot.name + ' (' + snapshot.type + ')\n\n' : '') + items.map(function(item) {
+            const value = item.value || ((item.start || '') + (item.stop ? ' - ' + item.stop : ''));
+            return (item.type || 'UNKNOWN') + ' ' + value;
+        }).join('\n');
+        button.parentElement.appendChild(output);
+        button.textContent = 'Sent list shown';
+    } catch (err) {
+        button.disabled = false;
+        showToast(err.message, 'error');
+    }
 }
 
 function toggleDetails(logId, btn) {
@@ -1405,6 +1443,7 @@ function showJobModal(job) {
             document.getElementById('schedulePreset').value = resolveSchedulePreset(job.schedule);
             document.getElementById('observedIpRetentionEnabled').checked = job.observed_ip_ttl_hours > 0;
             document.getElementById('observedIpTtlHours').value = job.observed_ip_ttl_hours > 0 ? job.observed_ip_ttl_hours : 168;
+            document.getElementById('collapseCIDRs').checked = !!job.collapse_cidrs;
             document.getElementById('enabled').checked = job.enabled;
             var targets = Array.isArray(job.targets) ? job.targets : [];
             var additional = [];
@@ -1427,6 +1466,7 @@ function showJobModal(job) {
             document.getElementById('schedule').value = '';
             document.getElementById('observedIpRetentionEnabled').checked = true;
             document.getElementById('observedIpTtlHours').value = 168;
+            document.getElementById('collapseCIDRs').checked = false;
             document.getElementById('enabled').checked = true;
             document.getElementById('networkListId').innerHTML = '<option value="">Select an endpoint first...</option>';
         }

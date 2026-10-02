@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -34,6 +35,7 @@ type SyncJob struct {
 	Hostnames          string      `json:"hostnames"`
 	Schedule           string      `json:"schedule"`
 	ObservedIPTTLHours int         `json:"observed_ip_ttl_hours"`
+	CollapseCIDRs      bool        `json:"collapse_cidrs"`
 	Enabled            bool        `json:"enabled"`
 	LastRunAt          *string     `json:"last_run_at"`
 	LastResult         *string     `json:"last_result"`
@@ -54,14 +56,26 @@ type JobTarget struct {
 
 // RunLog represents a single execution record for a sync job.
 type RunLog struct {
-	ID          int64   `json:"id"`
-	JobID       int64   `json:"job_id"`
-	StartedAt   string  `json:"started_at"`
-	FinishedAt  *string `json:"finished_at"`
-	Status      string  `json:"status"`
-	Message     string  `json:"message"`
-	ChangesMade int     `json:"changes_made"`
-	Details     string  `json:"details"`
+	ID          int64               `json:"id"`
+	JobID       int64               `json:"job_id"`
+	StartedAt   string              `json:"started_at"`
+	FinishedAt  *string             `json:"finished_at"`
+	Status      string              `json:"status"`
+	Message     string              `json:"message"`
+	ChangesMade int                 `json:"changes_made"`
+	Details     string              `json:"details"`
+	Stats       json.RawMessage     `json:"stats,omitempty"`
+	Targets     []RunTargetSnapshot `json:"targets,omitempty"`
+}
+
+// RunTargetSnapshot stores the exact list sent to a target for a run.
+type RunTargetSnapshot struct {
+	ID         int64           `json:"id"`
+	Label      string          `json:"label"`
+	Name       string          `json:"name,omitempty"`
+	Type       string          `json:"type,omitempty"`
+	EntryCount int             `json:"entry_count"`
+	Items      json.RawMessage `json:"items,omitempty"`
 }
 
 // DNSServer represents a custom DNS resolver endpoint.
@@ -154,6 +168,7 @@ func (s *Store) migrate() error {
 			message TEXT NOT NULL DEFAULT '',
 			changes_made INTEGER NOT NULL DEFAULT 0,
 			details TEXT NOT NULL DEFAULT '',
+			stats_json TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (job_id) REFERENCES sync_jobs(id) ON DELETE CASCADE
 		);
 	`)
@@ -161,6 +176,8 @@ func (s *Store) migrate() error {
 		return err
 	}
 	_, _ = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN observed_ip_ttl_hours INTEGER NOT NULL DEFAULT 168`)
+	_, _ = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN collapse_cidrs INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE run_logs ADD COLUMN stats_json TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE controllers ADD COLUMN provider TEXT NOT NULL DEFAULT 'unifi'`)
 	// Add skip_tls_verify to existing databases that predate this column.
 	_, _ = s.db.Exec(`ALTER TABLE controllers ADD COLUMN skip_tls_verify INTEGER NOT NULL DEFAULT 0`)
@@ -194,6 +211,19 @@ func (s *Store) migrate() error {
 		PRIMARY KEY (job_id, ip),
 		FOREIGN KEY (job_id) REFERENCES sync_jobs(id) ON DELETE CASCADE
 	)`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS run_log_targets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		run_log_id INTEGER NOT NULL,
+		label TEXT NOT NULL,
+			list_name TEXT NOT NULL DEFAULT '',
+			list_type TEXT NOT NULL DEFAULT '',
+		entry_count INTEGER NOT NULL,
+		items_json TEXT NOT NULL,
+		FOREIGN KEY (run_log_id) REFERENCES run_logs(id) ON DELETE CASCADE
+	)`)
+	_, _ = s.db.Exec(`ALTER TABLE run_log_targets ADD COLUMN list_name TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE run_log_targets ADD COLUMN list_type TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_run_log_targets_run_log_id ON run_log_targets(run_log_id)`)
 	// App auth identities and server-side sessions.
 	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS app_users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -335,7 +365,7 @@ func (s *Store) DeleteController(id int64) error {
 func (s *Store) ListJobs() ([]SyncJob, error) {
 	rows, err := s.db.Query(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.enabled,
+				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
@@ -351,7 +381,7 @@ func (s *Store) ListJobs() ([]SyncJob, error) {
 		var j SyncJob
 		var enabled int
 		if err := rows.Scan(&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-			&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &enabled,
+			&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 			&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 			&j.ControllerName); err != nil {
 			return nil, err
@@ -377,14 +407,14 @@ func (s *Store) GetJob(id int64) (*SyncJob, error) {
 	var enabled int
 	err := s.db.QueryRow(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.enabled,
+				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
 		LEFT JOIN controllers c ON c.id = j.controller_id
 		WHERE j.id = ?`, id).Scan(
 		&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-		&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &enabled,
+		&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 		&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 		&j.ControllerName)
 	if err != nil {
@@ -414,10 +444,10 @@ func (s *Store) CreateJob(j *SyncJob) (int64, error) {
 	primary := targets[0]
 	result, err := s.db.Exec(`
 		INSERT INTO sync_jobs (name, controller_id, network_list_id,
-			hostnames, schedule, observed_ip_ttl_hours, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 hostnames, schedule, observed_ip_ttl_hours, collapse_cidrs, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.Enabled),
+		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs), boolToInt(j.Enabled),
 		now, now)
 	if err != nil {
 		return 0, err
@@ -442,10 +472,10 @@ func (s *Store) UpdateJob(j *SyncJob) error {
 	primary := targets[0]
 	_, err := s.db.Exec(`
 		UPDATE sync_jobs SET name=?, controller_id=?, network_list_id=?,
-			hostnames=?, schedule=?, observed_ip_ttl_hours=?, enabled=?, updated_at=?
+			hostnames=?, schedule=?, observed_ip_ttl_hours=?, collapse_cidrs=?, enabled=?, updated_at=?
 		WHERE id=?`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, j.Schedule, j.ObservedIPTTLHours,
+		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs),
 		boolToInt(j.Enabled), now, j.ID)
 	if err != nil {
 		return err
@@ -467,9 +497,9 @@ func (s *Store) UpdateJobLastRun(id int64, runAt string, result string) error {
 
 func (s *Store) CreateRunLog(l *RunLog) (int64, error) {
 	result, err := s.db.Exec(`
-		INSERT INTO run_logs (job_id, started_at, status, message, changes_made, details)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		l.JobID, l.StartedAt, l.Status, l.Message, l.ChangesMade, l.Details)
+		INSERT INTO run_logs (job_id, started_at, status, message, changes_made, details, stats_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		l.JobID, l.StartedAt, l.Status, l.Message, l.ChangesMade, l.Details, string(l.Stats))
 	if err != nil {
 		return 0, err
 	}
@@ -477,16 +507,36 @@ func (s *Store) CreateRunLog(l *RunLog) (int64, error) {
 }
 
 func (s *Store) UpdateRunLog(l *RunLog) error {
-	_, err := s.db.Exec(`
-		UPDATE run_logs SET finished_at=?, status=?, message=?, changes_made=?, details=?
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+		UPDATE run_logs SET finished_at=?, status=?, message=?, changes_made=?, details=?, stats_json=?
 		WHERE id=?`,
-		l.FinishedAt, l.Status, l.Message, l.ChangesMade, l.Details, l.ID)
-	return err
+		l.FinishedAt, l.Status, l.Message, l.ChangesMade, l.Details, string(l.Stats), l.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM run_log_targets WHERE run_log_id = ?`, l.ID); err != nil {
+		return err
+	}
+	for _, target := range l.Targets {
+		if len(target.Items) == 0 {
+			continue
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO run_log_targets (run_log_id, label, list_name, list_type, entry_count, items_json)
+			VALUES (?, ?, ?, ?, ?, ?)`, l.ID, target.Label, target.Name, target.Type, target.EntryCount, string(target.Items)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) GetRunLogs(jobID int64, limit int) ([]RunLog, error) {
 	rows, err := s.db.Query(`
-		SELECT id, job_id, started_at, finished_at, status, message, changes_made, details
+		SELECT id, job_id, started_at, finished_at, status, message, changes_made, details, stats_json
 		FROM run_logs WHERE job_id = ? ORDER BY started_at DESC LIMIT ?`,
 		jobID, limit)
 	if err != nil {
@@ -497,13 +547,65 @@ func (s *Store) GetRunLogs(jobID int64, limit int) ([]RunLog, error) {
 	var logs []RunLog
 	for rows.Next() {
 		var l RunLog
+		var statsJSON string
 		if err := rows.Scan(&l.ID, &l.JobID, &l.StartedAt, &l.FinishedAt,
-			&l.Status, &l.Message, &l.ChangesMade, &l.Details); err != nil {
+			&l.Status, &l.Message, &l.ChangesMade, &l.Details, &statsJSON); err != nil {
 			return nil, err
+		}
+		if statsJSON != "" {
+			l.Stats = json.RawMessage(statsJSON)
 		}
 		logs = append(logs, l)
 	}
-	return logs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range logs {
+		logs[i].Targets, err = s.ListRunTargetSnapshots(logs[i].ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return logs, nil
+}
+
+// ListRunTargetSnapshots returns target labels and item counts without loading stored payloads.
+func (s *Store) ListRunTargetSnapshots(runLogID int64) ([]RunTargetSnapshot, error) {
+	rows, err := s.db.Query(`
+		SELECT id, label, list_name, list_type, entry_count FROM run_log_targets WHERE run_log_id = ? ORDER BY id`, runLogID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var snapshots []RunTargetSnapshot
+	for rows.Next() {
+		var snapshot RunTargetSnapshot
+		if err := rows.Scan(&snapshot.ID, &snapshot.Label, &snapshot.Name, &snapshot.Type, &snapshot.EntryCount); err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, rows.Err()
+}
+
+// GetRunTargetSnapshot retrieves a stored list payload scoped to the owning job and run.
+func (s *Store) GetRunTargetSnapshot(jobID, runLogID, targetID int64) (*RunTargetSnapshot, error) {
+	var snapshot RunTargetSnapshot
+	var itemsJSON string
+	err := s.db.QueryRow(`
+		SELECT t.id, t.label, t.list_name, t.list_type, t.entry_count, t.items_json
+		FROM run_log_targets t
+	JOIN run_logs r ON r.id = t.run_log_id
+	WHERE r.job_id = ? AND r.id = ? AND t.id = ?`, jobID, runLogID, targetID).Scan(
+		&snapshot.ID, &snapshot.Label, &snapshot.Name, &snapshot.Type, &snapshot.EntryCount, &itemsJSON)
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Items = json.RawMessage(itemsJSON)
+	return &snapshot, nil
 }
 
 func boolToInt(b bool) int {

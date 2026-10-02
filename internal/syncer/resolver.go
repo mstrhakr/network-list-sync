@@ -41,6 +41,13 @@ type multiResolver struct {
 	exchange      dnsExchangeFunc
 }
 
+// ResolutionStats describes source entries after DNS/list expansion but before deduplication.
+type ResolutionStats struct {
+	ResolvedEntries  int `json:"resolved_entries"`
+	UniqueEntries    int `json:"unique_entries"`
+	DuplicateEntries int `json:"duplicate_entries"`
+}
+
 // newMultiResolverWithServers builds a resolver that queries exactly the provided servers.
 // Returns an error if the list is empty — callers must ensure at least one server is configured.
 func newMultiResolverWithServers(servers []string) (*multiResolver, error) {
@@ -59,7 +66,18 @@ func newMultiResolverWithServers(servers []string) (*multiResolver, error) {
 // or IPv4 CIDR ranges into a de-duplicated set of IPv4 entries.
 // servers is the complete list of DNS server addresses to query; an empty list is an error.
 func ResolveHostnames(hostnamesText string, servers []string) (map[string]string, error) {
+	result, _, err := ResolveHostnamesWithStats(hostnamesText, servers)
+	return result, err
+}
+
+// ResolveHostnamesWithStats resolves source entries and reports duplicate resolved entries.
+func ResolveHostnamesWithStats(hostnamesText string, servers []string) (map[string]string, ResolutionStats, error) {
 	result := make(map[string]string)
+	resolvedEntries := 0
+	addEntry := func(entry, source string) {
+		resolvedEntries++
+		addResolvedSource(result, entry, source)
+	}
 	var resolver *multiResolver
 	var errors []string
 	externalCache := make(map[string][]string)
@@ -101,12 +119,12 @@ func ResolveHostnames(hostnamesText string, servers []string) (map[string]string
 		resolvedSource := sourceLabelForResolvedEntry(source, line)
 
 		if ip, ok := normalizeIPv4Literal(line); ok {
-			addResolvedSource(result, ip, resolvedSource)
+			addEntry(ip, resolvedSource)
 			return
 		}
 
 		if cidr, ok := normalizeIPv4CIDR(line); ok {
-			addResolvedSource(result, cidr, resolvedSource)
+			addEntry(cidr, resolvedSource)
 			return
 		}
 
@@ -126,7 +144,7 @@ func ResolveHostnames(hostnamesText string, servers []string) (map[string]string
 		}
 
 		for _, ip := range ips {
-			addResolvedSource(result, ip, resolvedSource)
+			addEntry(ip, resolvedSource)
 		}
 	}
 
@@ -134,15 +152,20 @@ func ResolveHostnames(hostnamesText string, servers []string) (map[string]string
 		resolveLine(rawLine, "", 0)
 	}
 
+	stats := ResolutionStats{
+		ResolvedEntries:  resolvedEntries,
+		UniqueEntries:    len(result),
+		DuplicateEntries: resolvedEntries - len(result),
+	}
 	if len(result) == 0 {
 		errMsg := "no IPv4 addresses resolved from hostname list"
 		if len(errors) > 0 {
 			errMsg += ": " + strings.Join(errors, "; ")
 		}
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, stats, fmt.Errorf("%s", errMsg)
 	}
 
-	return result, nil
+	return result, stats, nil
 }
 
 func (r *multiResolver) ResolveIPv4(hostname string) ([]string, error) {

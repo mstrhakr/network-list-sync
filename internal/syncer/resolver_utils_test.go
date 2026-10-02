@@ -73,3 +73,16 @@ func TestResolverHelpers(t *testing.T) {
 		t.Fatalf("bytesCompare equal = %d", got)
 	}
 }
+
+func TestResolveHostnamesWithStats_CountsDuplicateResolvedEntries(t *testing.T) {
+	got, stats, err := ResolveHostnamesWithStats("192.0.2.1\n192.0.2.1\n192.0.2.0/24", []string{"1.1.1.1:53"})
+	if err != nil {
+		t.Fatalf("ResolveHostnamesWithStats() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("resolved entries = %v, want two unique entries", got)
+	}
+	if stats.ResolvedEntries != 3 || stats.UniqueEntries != 2 || stats.DuplicateEntries != 1 {
+		t.Fatalf("resolution stats = %+v", stats)
+	}
+}
