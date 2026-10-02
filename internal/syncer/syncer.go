@@ -103,7 +103,7 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		if err != nil {
 			return SyncResult{Status: "error", Message: fmt.Sprintf("load observed IPs: %v", err)}
 		}
-		inputEntries += len(observedIPs)
+		inputEntries += countObservedIPsNotCurrent(observedIPs, hostIPs)
 		hostIPs = mergeResolvedIPs(observedIPs, hostIPs)
 	} else {
 		if err := db.DeleteObservedIPs(job.ID); err != nil {
@@ -190,6 +190,16 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		Stats:       optimizationStats,
 		Targets:     targetSnapshots,
 	}
+}
+
+func countObservedIPsNotCurrent(observed, current map[string]string) int {
+	count := 0
+	for ip := range observed {
+		if _, isCurrent := current[ip]; !isCurrent {
+			count++
+		}
+	}
+	return count
 }
 
 type targetSyncResult struct {

@@ -223,6 +223,7 @@ func (s *Store) migrate() error {
 	)`)
 	_, _ = s.db.Exec(`ALTER TABLE run_log_targets ADD COLUMN list_name TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE run_log_targets ADD COLUMN list_type TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_run_log_targets_run_log_id ON run_log_targets(run_log_id)`)
 	// App auth identities and server-side sessions.
 	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS app_users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

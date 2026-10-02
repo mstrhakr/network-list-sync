@@ -95,6 +95,33 @@ func TestMergeResolvedIPs_PreservesObservedSuperset(t *testing.T) {
 	}
 }
 
+func TestCountObservedIPsNotCurrent_ExcludesCurrentAnswers(t *testing.T) {
+	observed := map[string]string{
+		"192.0.2.1": "current.example",
+		"192.0.2.2": "previous.example",
+	}
+	current := map[string]string{"192.0.2.1": "current.example"}
+	if got := countObservedIPsNotCurrent(observed, current); got != 1 {
+		t.Fatalf("countObservedIPsNotCurrent() = %d, want 1", got)
+	}
+}
+
+func TestCurrentResolutionWithRetentionDoesNotInflateOptimizationStats(t *testing.T) {
+	current := map[string]string{"192.0.2.1": "feed.example"}
+	observed := map[string]string{"192.0.2.1": "feed.example"}
+	inputEntries := 1 + countObservedIPsNotCurrent(observed, current)
+	_, stats, err := OptimizeIPv4Entries(SortedIPs(current), false)
+	if err != nil {
+		t.Fatalf("OptimizeIPv4Entries() error = %v", err)
+	}
+	stats.InputEntries = inputEntries
+	stats.DuplicateEntries = inputEntries - stats.UniqueEntries
+	stats.EntriesSaved = inputEntries - stats.OutputEntries
+	if stats.InputEntries != 1 || stats.DuplicateEntries != 0 || stats.EntriesSaved != 0 {
+		t.Fatalf("current retained answer inflated stats: %+v", stats)
+	}
+}
+
 func TestObservedIPRetention_UsesJobSettingOrDefault(t *testing.T) {
 	if got := observedIPRetention(nil); got != time.Duration(store.DefaultObservedIPTTLHours)*time.Hour {
 		t.Fatalf("observedIPRetention(nil) = %v", got)
