@@ -53,6 +53,7 @@ func TestStore_EndToEndCRUDAndObservedIPs(t *testing.T) {
 		Hostnames:          "example.com",
 		Schedule:           "*/5 * * * *",
 		ObservedIPTTLHours: -1,
+		CollapseCIDRs:      true,
 		Enabled:            true,
 	})
 	if err != nil {
@@ -66,10 +67,14 @@ func TestStore_EndToEndCRUDAndObservedIPs(t *testing.T) {
 	if job.ObservedIPTTLHours != DefaultObservedIPTTLHours {
 		t.Fatalf("ObservedIPTTLHours = %d, want %d", job.ObservedIPTTLHours, DefaultObservedIPTTLHours)
 	}
+	if !job.CollapseCIDRs {
+		t.Fatal("CollapseCIDRs = false, want true")
+	}
 
 	job.Schedule = "0 */6 * * *"
 	job.Enabled = false
 	job.ObservedIPTTLHours = 0
+	job.CollapseCIDRs = false
 	if err := s.UpdateJob(job); err != nil {
 		t.Fatalf("UpdateJob() error = %v", err)
 	}
@@ -83,6 +88,9 @@ func TestStore_EndToEndCRUDAndObservedIPs(t *testing.T) {
 	}
 	if jobs[0].ControllerName != "main-updated" {
 		t.Fatalf("ControllerName = %q, want main-updated", jobs[0].ControllerName)
+	}
+	if jobs[0].CollapseCIDRs {
+		t.Fatal("ListJobs() CollapseCIDRs = true, want false")
 	}
 
 	if err := s.UpdateJobLastRun(jobID, "2026-01-01T00:00:00Z", "success: done"); err != nil {

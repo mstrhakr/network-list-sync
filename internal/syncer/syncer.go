@@ -112,7 +112,10 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		targets = []store.JobTarget{{ControllerID: job.ControllerID, NetworkListID: job.NetworkListID}}
 	}
 
-	newIPs := SortedIPs(hostIPs)
+	newIPs, _, err := OptimizeIPv4Entries(SortedIPs(hostIPs), job.CollapseCIDRs)
+	if err != nil {
+		return SyncResult{Status: "error", Message: fmt.Sprintf("optimize IPv4 entries: %v", err)}
+	}
 	totalChanges := 0
 	succeeded := 0
 	failed := 0
@@ -242,7 +245,11 @@ func DiffIPs(oldIPs, newIPs []string) (added, removed, kept []string) {
 func FormatDiff(added, removed, kept []string, hostIPs map[string]string) string {
 	var b strings.Builder
 	for _, ip := range added {
-		fmt.Fprintf(&b, "+ %s (%s)\n", ip, hostIPs[ip])
+		source := hostIPs[ip]
+		if source == "" {
+			source = "aggregated entries"
+		}
+		fmt.Fprintf(&b, "+ %s (%s)\n", ip, source)
 	}
 	for _, ip := range removed {
 		host := hostIPs[ip]
@@ -252,7 +259,11 @@ func FormatDiff(added, removed, kept []string, hostIPs map[string]string) string
 		fmt.Fprintf(&b, "- %s (%s)\n", ip, host)
 	}
 	for _, ip := range kept {
-		fmt.Fprintf(&b, "  %s (%s)\n", ip, hostIPs[ip])
+		source := hostIPs[ip]
+		if source == "" {
+			source = "aggregated entries"
+		}
+		fmt.Fprintf(&b, "  %s (%s)\n", ip, source)
 	}
 	return b.String()
 }

@@ -969,6 +969,7 @@ async function saveJob(event) {
         hostnames: document.getElementById('hostnames').value,
         schedule: getScheduleValueFromForm(),
         observed_ip_ttl_hours: observedTTLHours,
+        collapse_cidrs: document.getElementById('collapseCIDRs').checked,
         enabled: scheduleEnabled,
     };
 
@@ -1405,6 +1406,7 @@ function showJobModal(job) {
             document.getElementById('schedulePreset').value = resolveSchedulePreset(job.schedule);
             document.getElementById('observedIpRetentionEnabled').checked = job.observed_ip_ttl_hours > 0;
             document.getElementById('observedIpTtlHours').value = job.observed_ip_ttl_hours > 0 ? job.observed_ip_ttl_hours : 168;
+            document.getElementById('collapseCIDRs').checked = !!job.collapse_cidrs;
             document.getElementById('enabled').checked = job.enabled;
             var targets = Array.isArray(job.targets) ? job.targets : [];
             var additional = [];
@@ -1427,6 +1429,7 @@ function showJobModal(job) {
             document.getElementById('schedule').value = '';
             document.getElementById('observedIpRetentionEnabled').checked = true;
             document.getElementById('observedIpTtlHours').value = 168;
+            document.getElementById('collapseCIDRs').checked = false;
             document.getElementById('enabled').checked = true;
             document.getElementById('networkListId').innerHTML = '<option value="">Select an endpoint first...</option>';
         }

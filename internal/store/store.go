@@ -34,6 +34,7 @@ type SyncJob struct {
 	Hostnames          string      `json:"hostnames"`
 	Schedule           string      `json:"schedule"`
 	ObservedIPTTLHours int         `json:"observed_ip_ttl_hours"`
+	CollapseCIDRs      bool        `json:"collapse_cidrs"`
 	Enabled            bool        `json:"enabled"`
 	LastRunAt          *string     `json:"last_run_at"`
 	LastResult         *string     `json:"last_result"`
@@ -161,6 +162,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 	_, _ = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN observed_ip_ttl_hours INTEGER NOT NULL DEFAULT 168`)
+	_, _ = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN collapse_cidrs INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE controllers ADD COLUMN provider TEXT NOT NULL DEFAULT 'unifi'`)
 	// Add skip_tls_verify to existing databases that predate this column.
 	_, _ = s.db.Exec(`ALTER TABLE controllers ADD COLUMN skip_tls_verify INTEGER NOT NULL DEFAULT 0`)
@@ -335,7 +337,7 @@ func (s *Store) DeleteController(id int64) error {
 func (s *Store) ListJobs() ([]SyncJob, error) {
 	rows, err := s.db.Query(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.enabled,
+				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
@@ -351,7 +353,7 @@ func (s *Store) ListJobs() ([]SyncJob, error) {
 		var j SyncJob
 		var enabled int
 		if err := rows.Scan(&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-			&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &enabled,
+			&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 			&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 			&j.ControllerName); err != nil {
 			return nil, err
@@ -377,14 +379,14 @@ func (s *Store) GetJob(id int64) (*SyncJob, error) {
 	var enabled int
 	err := s.db.QueryRow(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.enabled,
+				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
 		LEFT JOIN controllers c ON c.id = j.controller_id
 		WHERE j.id = ?`, id).Scan(
 		&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-		&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &enabled,
+		&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 		&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 		&j.ControllerName)
 	if err != nil {
@@ -414,10 +416,10 @@ func (s *Store) CreateJob(j *SyncJob) (int64, error) {
 	primary := targets[0]
 	result, err := s.db.Exec(`
 		INSERT INTO sync_jobs (name, controller_id, network_list_id,
-			hostnames, schedule, observed_ip_ttl_hours, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 hostnames, schedule, observed_ip_ttl_hours, collapse_cidrs, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.Enabled),
+		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs), boolToInt(j.Enabled),
 		now, now)
 	if err != nil {
 		return 0, err
@@ -442,10 +444,10 @@ func (s *Store) UpdateJob(j *SyncJob) error {
 	primary := targets[0]
 	_, err := s.db.Exec(`
 		UPDATE sync_jobs SET name=?, controller_id=?, network_list_id=?,
-			hostnames=?, schedule=?, observed_ip_ttl_hours=?, enabled=?, updated_at=?
+			hostnames=?, schedule=?, observed_ip_ttl_hours=?, collapse_cidrs=?, enabled=?, updated_at=?
 		WHERE id=?`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, j.Schedule, j.ObservedIPTTLHours,
+		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs),
 		boolToInt(j.Enabled), now, j.ID)
 	if err != nil {
 		return err
