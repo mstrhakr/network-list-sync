@@ -15,6 +15,7 @@ type OptimizationStats struct {
 	DuplicateEntries      int `json:"duplicate_entries"`
 	CoveredEntriesRemoved int `json:"covered_entries_removed"`
 	CIDRBlocks            int `json:"cidr_blocks"`
+	CIDRsCreated          int `json:"cidrs_created"`
 	OutputEntries         int `json:"output_entries"`
 	EntriesSaved          int `json:"entries_saved"`
 }
@@ -86,6 +87,9 @@ func OptimizeIPv4Entries(entries []string, collapseCIDRs bool) ([]string, Optimi
 	for _, entry := range output {
 		if _, err := netip.ParsePrefix(entry); err == nil {
 			stats.CIDRBlocks++
+			if _, existed := unique[entry]; !existed {
+				stats.CIDRsCreated++
+			}
 		}
 	}
 	stats.OutputEntries = len(output)

@@ -135,3 +135,59 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Fatalf("expected unhealthy response, got %s", rr2.Body.String())
 	}
 }
+
+func TestGetRunTargetSnapshot(t *testing.T) {
+	s, err := store.New(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatalf("store.New() error = %v", err)
+	}
+	defer s.Close()
+
+	controllerID, err := s.CreateController(&store.Controller{Name: "test", URL: "http://example.test", APIKey: "key"})
+	if err != nil {
+		t.Fatalf("CreateController() error = %v", err)
+	}
+	jobID, err := s.CreateJob(&store.SyncJob{Name: "job", ControllerID: controllerID, NetworkListID: "list", Hostnames: "192.0.2.1"})
+	if err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	logID, err := s.CreateRunLog(&store.RunLog{JobID: jobID, StartedAt: "2026-01-01T00:00:00Z", Status: "running"})
+	if err != nil {
+		t.Fatalf("CreateRunLog() error = %v", err)
+	}
+	finished := "2026-01-01T00:01:00Z"
+	if err := s.UpdateRunLog(&store.RunLog{
+		ID:         logID,
+		FinishedAt: &finished,
+		Status:     "success",
+		Targets: []store.RunTargetSnapshot{{
+			Label:      "unifi:list @ test",
+			EntryCount: 1,
+			Items:      json.RawMessage(`[{"type":"IP_ADDRESS","value":"192.0.2.1"}]`),
+		}},
+	}); err != nil {
+		t.Fatalf("UpdateRunLog() error = %v", err)
+	}
+	logs, err := s.GetRunLogs(jobID, 10)
+	if err != nil || len(logs) != 1 || len(logs[0].Targets) != 1 {
+		t.Fatalf("GetRunLogs() = %+v, error = %v", logs, err)
+	}
+
+	h := &Handler{store: s}
+	request := httptest.NewRequest(http.MethodGet, "/api/jobs/1/logs/1/targets/1", nil)
+	request.SetPathValue("id", "1")
+	request.SetPathValue("logID", "1")
+	request.SetPathValue("targetID", "1")
+	response := httptest.NewRecorder()
+	h.getRunTargetSnapshot(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "192.0.2.1") {
+		t.Fatalf("snapshot response = %d %s", response.Code, response.Body.String())
+	}
+
+	request.SetPathValue("id", "999")
+	missingResponse := httptest.NewRecorder()
+	h.getRunTargetSnapshot(missingResponse, request)
+	if missingResponse.Code != http.StatusNotFound {
+		t.Fatalf("wrong-job snapshot status = %d, want 404", missingResponse.Code)
+	}
+}

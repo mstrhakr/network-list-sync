@@ -74,6 +74,7 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 	mux.HandleFunc("GET /api/jobs/{id}/target-list", h.getJobNetworkList)
 	mux.HandleFunc("POST /api/jobs/{id}/run", h.runJob)
 	mux.HandleFunc("GET /api/jobs/{id}/logs", h.getJobLogs)
+	mux.HandleFunc("GET /api/jobs/{id}/logs/{logID}/targets/{targetID}", h.getRunTargetSnapshot)
 	mux.HandleFunc("POST /api/resolve", h.resolveHostnames)
 	mux.HandleFunc("GET /api/health", h.health)
 	mux.HandleFunc("GET /api/dns-servers", h.listDNSServers)
@@ -637,6 +638,30 @@ func (h *Handler) getJobLogs(w http.ResponseWriter, r *http.Request) {
 		logs = []store.RunLog{}
 	}
 	writeJSON(w, http.StatusOK, logs)
+}
+
+func (h *Handler) getRunTargetSnapshot(w http.ResponseWriter, r *http.Request) {
+	jobID, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid job ID")
+		return
+	}
+	logID, err := strconv.ParseInt(r.PathValue("logID"), 10, 64)
+	if err != nil || logID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid run log ID")
+		return
+	}
+	targetID, err := strconv.ParseInt(r.PathValue("targetID"), 10, 64)
+	if err != nil || targetID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid target snapshot ID")
+		return
+	}
+	snapshot, err := h.store.GetRunTargetSnapshot(jobID, logID, targetID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "target snapshot not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (h *Handler) resolveHostnames(w http.ResponseWriter, r *http.Request) {

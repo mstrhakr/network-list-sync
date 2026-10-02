@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -102,7 +103,22 @@ func TestStore_EndToEndCRUDAndObservedIPs(t *testing.T) {
 		t.Fatalf("CreateRunLog() error = %v", err)
 	}
 	finished := "2026-01-01T00:01:00Z"
-	if err := s.UpdateRunLog(&RunLog{ID: logID, FinishedAt: &finished, Status: "success", Message: "ok", ChangesMade: 2, Details: "d"}); err != nil {
+	if err := s.UpdateRunLog(&RunLog{
+		ID:          logID,
+		FinishedAt:  &finished,
+		Status:      "success",
+		Message:     "ok",
+		ChangesMade: 2,
+		Details:     "d",
+		Stats:       json.RawMessage(`{"entries_saved":1}`),
+		Targets: []RunTargetSnapshot{{
+			Label:      "unifi:nl-1 @ main",
+			Name:       "blocked feeds",
+			Type:       "IPV4_ADDRESSES",
+			EntryCount: 1,
+			Items:      json.RawMessage(`[{"type":"SUBNET","value":"192.0.2.0/24"}]`),
+		}},
+	}); err != nil {
 		t.Fatalf("UpdateRunLog() error = %v", err)
 	}
 	logs, err := s.GetRunLogs(jobID, 10)
@@ -111,6 +127,16 @@ func TestStore_EndToEndCRUDAndObservedIPs(t *testing.T) {
 	}
 	if len(logs) != 1 || logs[0].Status != "success" {
 		t.Fatalf("unexpected logs = %+v", logs)
+	}
+	if !json.Valid(logs[0].Stats) || len(logs[0].Targets) != 1 || logs[0].Targets[0].EntryCount != 1 {
+		t.Fatalf("run log stats/targets = %+v", logs[0])
+	}
+	snapshot, err := s.GetRunTargetSnapshot(jobID, logID, logs[0].Targets[0].ID)
+	if err != nil {
+		t.Fatalf("GetRunTargetSnapshot() error = %v", err)
+	}
+	if !json.Valid(snapshot.Items) || snapshot.Label != "unifi:nl-1 @ main" || snapshot.Name != "blocked feeds" || snapshot.Type != "IPV4_ADDRESSES" {
+		t.Fatalf("stored target snapshot = %+v", snapshot)
 	}
 
 	dnsID, err := s.CreateDNSServer(&DNSServer{Name: "local", Address: "10.0.0.2:53", Enabled: false})
