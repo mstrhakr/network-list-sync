@@ -1,12 +1,14 @@
-# Network List Sync
-
+<div align="center">
+  <img src="docs/banner.png" alt="Network List Sync" width="900">
+   
 [![CI](https://img.shields.io/github/actions/workflow/status/mstrhakr/network-list-sync/ci.yml?branch=main&label=ci)](https://github.com/mstrhakr/network-list-sync/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/mstrhakr/network-list-sync?display_name=tag)](https://github.com/mstrhakr/network-list-sync/releases/latest)
 [![Go Report Card](https://img.shields.io/badge/go%20report-A%2B-brightgreen?logo=go)](https://goreportcard.com/report/github.com/mstrhakr/network-list-sync)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mstrhakr/network-list-sync)](https://github.com/mstrhakr/network-list-sync/blob/main/go.mod)
 [![License](https://img.shields.io/github/license/mstrhakr/network-list-sync)](LICENSE)
 
-![Banner](./docs/banner.png)
+</div>
+
 
 Network List Sync resolves hostnames to IPs and keeps provider-managed target lists in sync.
 
