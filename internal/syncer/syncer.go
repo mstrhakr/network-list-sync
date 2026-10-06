@@ -76,6 +76,10 @@ func (s *Syncer) Run(db *store.Store, jobID int64) SyncResult {
 }
 
 func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
+	hostnames, err := db.ExpandSourceEntries(job.Hostnames, job.IncludedListIDs)
+	if err != nil {
+		return SyncResult{Status: "error", Message: fmt.Sprintf("expand source lists: %v", err)}
+	}
 	servers, err := db.ListEnabledDNSServerAddresses()
 	if err != nil {
 		return SyncResult{Status: "error", Message: fmt.Sprintf("load DNS servers: %v", err)}
@@ -83,7 +87,7 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 	if len(servers) == 0 {
 		return SyncResult{Status: "error", Message: "no DNS servers configured: add at least one enabled DNS server"}
 	}
-	hostIPs, resolutionStats, err := ResolveHostnamesWithStats(job.Hostnames, servers)
+	hostIPs, resolutionStats, err := ResolveHostnamesWithStats(hostnames, servers)
 	if err != nil {
 		return SyncResult{Status: "error", Message: fmt.Sprintf("DNS resolution: %v", err)}
 	}

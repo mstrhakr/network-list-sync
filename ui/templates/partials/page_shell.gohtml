@@ -29,6 +29,7 @@
         <div class="jobs-view-actions">
             <div id="jobsTableCustomizerToolbar" class="hidden"></div>
             {{if and .Principal .Principal.IsAdmin}}
+            <button class="btn btn-small btn-secondary" type="button" onclick="showSourceListsModal()">Reusable Sources</button>
             <button class="btn btn-small btn-primary" type="button" onclick="showJobModal()">+ New Sync Job</button>
             {{end}}
         </div>

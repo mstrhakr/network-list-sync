@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -33,6 +34,7 @@ type SyncJob struct {
 	NetworkListID      string      `json:"target_list_id"`
 	Targets            []JobTarget `json:"targets,omitempty"`
 	Hostnames          string      `json:"hostnames"`
+	IncludedListIDs    []int64     `json:"included_list_ids"`
 	Schedule           string      `json:"schedule"`
 	ObservedIPTTLHours int         `json:"observed_ip_ttl_hours"`
 	CollapseCIDRs      bool        `json:"collapse_cidrs"`
@@ -102,6 +104,9 @@ type AppUser struct {
 // Store provides SQLite-backed persistence for sync jobs and run logs.
 type Store struct {
 	db *sql.DB
+	// Serialize graph mutations and job reference writes on this Store. Each
+	// operation also uses a transaction for snapshot validation and persistence.
+	sourceMu sync.Mutex
 }
 
 // New opens (or creates) the SQLite database and runs migrations.
@@ -173,6 +178,9 @@ func (s *Store) migrate() error {
 		);
 	`)
 	if err != nil {
+		return err
+	}
+	if err := s.migrateSourceLists(); err != nil {
 		return err
 	}
 	_, _ = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN observed_ip_ttl_hours INTEGER NOT NULL DEFAULT 168`)
@@ -286,6 +294,9 @@ func (s *Store) migrate() error {
 				ON CONFLICT(job_id, controller_id, network_list_id) DO NOTHING`,
 				jobID, controllerID, networkListID, now, now)
 		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -365,7 +376,7 @@ func (s *Store) DeleteController(id int64) error {
 func (s *Store) ListJobs() ([]SyncJob, error) {
 	rows, err := s.db.Query(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
+				j.hostnames, j.included_list_ids, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
@@ -380,11 +391,16 @@ func (s *Store) ListJobs() ([]SyncJob, error) {
 	for rows.Next() {
 		var j SyncJob
 		var enabled int
+		var includes string
 		if err := rows.Scan(&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-			&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
+			&j.Hostnames, &includes, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 			&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 			&j.ControllerName); err != nil {
 			return nil, err
+		}
+		j.IncludedListIDs, err = decodeSourceIDs(includes)
+		if err != nil {
+			return nil, fmt.Errorf("job %d: %w", j.ID, err)
 		}
 		j.ObservedIPTTLHours = normalizeObservedIPTTLHours(j.ObservedIPTTLHours)
 		j.Enabled = enabled != 0
@@ -405,20 +421,25 @@ func (s *Store) ListJobs() ([]SyncJob, error) {
 func (s *Store) GetJob(id int64) (*SyncJob, error) {
 	var j SyncJob
 	var enabled int
+	var includes string
 	err := s.db.QueryRow(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
+				j.hostnames, j.included_list_ids, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
 		LEFT JOIN controllers c ON c.id = j.controller_id
 		WHERE j.id = ?`, id).Scan(
 		&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-		&j.Hostnames, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
+		&j.Hostnames, &includes, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 		&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 		&j.ControllerName)
 	if err != nil {
 		return nil, err
+	}
+	j.IncludedListIDs, err = decodeSourceIDs(includes)
+	if err != nil {
+		return nil, fmt.Errorf("job %d: %w", j.ID, err)
 	}
 	j.ObservedIPTTLHours = normalizeObservedIPTTLHours(j.ObservedIPTTLHours)
 	j.Enabled = enabled != 0
@@ -435,6 +456,8 @@ func (s *Store) GetJob(id int64) (*SyncJob, error) {
 }
 
 func (s *Store) CreateJob(j *SyncJob) (int64, error) {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
 	now := time.Now().UTC().Format(time.RFC3339)
 	j.ObservedIPTTLHours = normalizeObservedIPTTLHours(j.ObservedIPTTLHours)
 	targets := normalizeTargets(j)
@@ -442,12 +465,22 @@ func (s *Store) CreateJob(j *SyncJob) (int64, error) {
 		return 0, fmt.Errorf("at least one target is required")
 	}
 	primary := targets[0]
-	result, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	ids := normalizeSourceIDs(j.IncludedListIDs)
+	if err := validateJobSourceIDs(tx, ids); err != nil {
+		return 0, err
+	}
+	includes, _ := json.Marshal(ids)
+	result, err := tx.Exec(`
 		INSERT INTO sync_jobs (name, controller_id, network_list_id,
-			 hostnames, schedule, observed_ip_ttl_hours, collapse_cidrs, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 hostnames, included_list_ids, schedule, observed_ip_ttl_hours, collapse_cidrs, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs), boolToInt(j.Enabled),
+		j.Hostnames, string(includes), j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs), boolToInt(j.Enabled),
 		now, now)
 	if err != nil {
 		return 0, err
@@ -456,13 +489,19 @@ func (s *Store) CreateJob(j *SyncJob) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := s.SetJobTargets(jobID, targets); err != nil {
+	if err := setJobTargets(tx, jobID, targets); err != nil {
 		return 0, err
 	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	j.IncludedListIDs = ids
 	return jobID, nil
 }
 
 func (s *Store) UpdateJob(j *SyncJob) error {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
 	now := time.Now().UTC().Format(time.RFC3339)
 	j.ObservedIPTTLHours = normalizeObservedIPTTLHours(j.ObservedIPTTLHours)
 	targets := normalizeTargets(j)
@@ -470,20 +509,39 @@ func (s *Store) UpdateJob(j *SyncJob) error {
 		return fmt.Errorf("at least one target is required")
 	}
 	primary := targets[0]
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	ids := normalizeSourceIDs(j.IncludedListIDs)
+	if err := validateJobSourceIDs(tx, ids); err != nil {
+		return err
+	}
+	includes, _ := json.Marshal(ids)
+	_, err = tx.Exec(`
 		UPDATE sync_jobs SET name=?, controller_id=?, network_list_id=?,
-			hostnames=?, schedule=?, observed_ip_ttl_hours=?, collapse_cidrs=?, enabled=?, updated_at=?
+			hostnames=?, included_list_ids=?, schedule=?, observed_ip_ttl_hours=?, collapse_cidrs=?, enabled=?, updated_at=?
 		WHERE id=?`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs),
+		j.Hostnames, string(includes), j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs),
 		boolToInt(j.Enabled), now, j.ID)
 	if err != nil {
 		return err
 	}
-	return s.SetJobTargets(j.ID, targets)
+	if err := setJobTargets(tx, j.ID, targets); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	j.IncludedListIDs = ids
+	return nil
 }
 
 func (s *Store) DeleteJob(id int64) error {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
 	_, err := s.db.Exec("DELETE FROM sync_jobs WHERE id = ?", id)
 	return err
 }
@@ -680,6 +738,8 @@ func (s *Store) ListJobTargets(jobID int64) ([]JobTarget, error) {
 }
 
 func (s *Store) SetJobTargets(jobID int64, targets []JobTarget) error {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
 	if len(targets) == 0 {
 		return fmt.Errorf("at least one target is required")
 	}
@@ -689,7 +749,13 @@ func (s *Store) SetJobTargets(jobID int64, targets []JobTarget) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err := setJobTargets(tx, jobID, targets); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
+func setJobTargets(tx *sql.Tx, jobID int64, targets []JobTarget) error {
 	if _, err := tx.Exec(`DELETE FROM sync_job_targets WHERE job_id = ?`, jobID); err != nil {
 		return err
 	}
@@ -707,7 +773,7 @@ func (s *Store) SetJobTargets(jobID int64, targets []JobTarget) error {
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // ---------- DNSServer CRUD ----------

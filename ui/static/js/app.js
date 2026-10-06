@@ -967,6 +967,7 @@ async function saveJob(event) {
         target_list_id: primaryNetworkListID,
         targets: targets,
         hostnames: document.getElementById('hostnames').value,
+        included_list_ids: selectedSourceIDs('jobSourceLists'),
         schedule: getScheduleValueFromForm(),
         observed_ip_ttl_hours: observedTTLHours,
         collapse_cidrs: document.getElementById('collapseCIDRs').checked,
@@ -975,6 +976,10 @@ async function saveJob(event) {
 
     if (!targets.length) {
         showToast('Add at least one endpoint target', 'error');
+        return;
+    }
+    if (!data.hostnames.trim() && !data.included_list_ids.length) {
+        showToast('Add entries or select a reusable source', 'error');
         return;
     }
     if (selectedSchedulePreset === 'custom' && !data.schedule) {
@@ -1116,8 +1121,9 @@ function renderNetworkList(networkList) {
 async function previewResolve() {
     if (!isAdminUser) return;
     const hostnames = document.getElementById('hostnames').value;
+    const includedListIDs = selectedSourceIDs('jobSourceLists');
     const preview = document.getElementById('resolvePreview');
-    if (!hostnames.trim()) {
+    if (!hostnames.trim() && !includedListIDs.length) {
         preview.classList.add('hidden');
         return;
     }
@@ -1129,7 +1135,7 @@ async function previewResolve() {
         const resp = await fetch(API + '/resolve', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ hostnames: hostnames }),
+            body: JSON.stringify({ hostnames: hostnames, included_list_ids: includedListIDs }),
         });
         const data = await resp.json();
         if (resp.ok) {
@@ -1430,7 +1436,7 @@ function showJobModal(job) {
     const modal = document.getElementById('jobModal');
     const title = document.getElementById('jobModalTitle');
 
-    loadControllers().then(function() {
+    Promise.all([loadControllers(), loadSourceLists()]).then(function() {
         populateControllerDropdown(job ? job.instance_id : '');
         document.getElementById('additionalTargetsRows').innerHTML = '';
 
@@ -1471,10 +1477,13 @@ function showJobModal(job) {
             document.getElementById('networkListId').innerHTML = '<option value="">Select an endpoint first...</option>';
         }
 
+        renderSourcePicker('jobSourceLists', job ? job.included_list_ids : []);
         onSchedulePresetChange();
         onObservedIpRetentionToggle();
         document.getElementById('resolvePreview').classList.add('hidden');
         modal.classList.remove('hidden');
+    }).catch(function(err) {
+        showToast('Cannot load job sources: ' + err.message, 'error');
     });
 }
 

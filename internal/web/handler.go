@@ -66,6 +66,12 @@ func NewHandler(s *store.Store, syn *syncer.Syncer, sched *scheduler.Scheduler, 
 	mux.HandleFunc("GET /api/instances/{id}/target-lists", h.listNetworkLists)
 	mux.HandleFunc("POST /api/instances/test", h.testController)
 
+	mux.HandleFunc("GET /api/source-lists", h.listSourceLists)
+	mux.HandleFunc("POST /api/source-lists", h.createSourceList)
+	mux.HandleFunc("GET /api/source-lists/{id}", h.getSourceList)
+	mux.HandleFunc("PUT /api/source-lists/{id}", h.updateSourceList)
+	mux.HandleFunc("DELETE /api/source-lists/{id}", h.deleteSourceList)
+
 	mux.HandleFunc("GET /api/jobs", h.listJobs)
 	mux.HandleFunc("POST /api/jobs", h.createJob)
 	mux.HandleFunc("GET /api/jobs/{id}", h.getJob)
@@ -451,8 +457,12 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if job.Name == "" || job.Hostnames == "" {
+	if strings.TrimSpace(job.Name) == "" || (strings.TrimSpace(job.Hostnames) == "" && len(job.IncludedListIDs) == 0) {
 		writeError(w, http.StatusBadRequest, "missing required fields")
+		return
+	}
+	if err := h.store.ValidateSourceEntries(job.Hostnames, job.IncludedListIDs); err != nil {
+		writeSourceEntriesError(w, err)
 		return
 	}
 	if len(job.Targets) == 0 {
@@ -468,11 +478,13 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.store.CreateJob(&job)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeSourceEntriesError(w, err)
 		return
 	}
 
-	h.scheduler.Reload(id)
+	if h.scheduler != nil {
+		h.scheduler.Reload(id)
+	}
 
 	job.ID = id
 	writeJSON(w, http.StatusCreated, job)
@@ -509,6 +521,14 @@ func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	if strings.TrimSpace(job.Name) == "" || (strings.TrimSpace(job.Hostnames) == "" && len(job.IncludedListIDs) == 0) {
+		writeError(w, http.StatusBadRequest, "missing required fields")
+		return
+	}
+	if err := h.store.ValidateSourceEntries(job.Hostnames, job.IncludedListIDs); err != nil {
+		writeSourceEntriesError(w, err)
+		return
+	}
 	if len(job.Targets) == 0 {
 		if job.ControllerID == 0 || job.NetworkListID == "" {
 			writeError(w, http.StatusBadRequest, "missing required target fields")
@@ -522,11 +542,13 @@ func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
 
 	job.ID = id
 	if err := h.store.UpdateJob(&job); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeSourceEntriesError(w, err)
 		return
 	}
 
-	h.scheduler.Reload(id)
+	if h.scheduler != nil {
+		h.scheduler.Reload(id)
+	}
 
 	writeJSON(w, http.StatusOK, job)
 }
@@ -541,7 +563,9 @@ func (h *Handler) deleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.scheduler.Remove(id)
+	if h.scheduler != nil {
+		h.scheduler.Remove(id)
+	}
 
 	if err := h.store.DeleteJob(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -669,19 +693,29 @@ func (h *Handler) resolveHostnames(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Hostnames string `json:"hostnames"`
+		Hostnames       string  `json:"hostnames"`
+		IncludedListIDs []int64 `json:"included_list_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
-	extraServers, _ := h.store.ListEnabledDNSServerAddresses()
+	hostnames, err := h.store.ExpandSourceEntries(input.Hostnames, input.IncludedListIDs)
+	if err != nil {
+		writeSourceEntriesError(w, err)
+		return
+	}
+	extraServers, err := h.store.ListEnabledDNSServerAddresses()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if len(extraServers) == 0 {
 		writeError(w, http.StatusUnprocessableEntity, "no DNS servers configured: add at least one enabled DNS server")
 		return
 	}
-	hostIPs, err := syncer.ResolveHostnames(input.Hostnames, extraServers)
+	hostIPs, err := syncer.ResolveHostnames(hostnames, extraServers)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return

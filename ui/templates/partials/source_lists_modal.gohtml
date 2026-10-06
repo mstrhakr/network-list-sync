@@ -1,0 +1,44 @@
+{{define "source-lists-modal"}}
+<div id="sourceListsModal" class="modal hidden">
+    <div class="modal-overlay" onclick="hideSourceListsModal()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Reusable Sources</h2>
+            <button class="modal-close" type="button" aria-label="Close reusable sources" onclick="hideSourceListsModal()">&times;</button>
+        </div>
+        <p class="hint">Define shared inputs once, include them in jobs or other sources. No endpoint or schedule required. Changes apply on the next job run; retained entries may remain until the job's retention window expires.</p>
+        <div class="source-manager-actions">
+            <button class="btn btn-small btn-primary" type="button" onclick="editSourceList()">+ New Source</button>
+            <button class="btn btn-small btn-secondary" type="button" onclick="editSourceList(null, true)">+ RFC1918 Preset</button>
+        </div>
+        <div id="sourceListsContent" class="source-list-cards" aria-live="polite"></div>
+        <form id="sourceListForm" class="hidden" onsubmit="saveSourceList(event)">
+            <div class="form-section">
+                <h3 id="sourceEditorTitle" class="section-title">New Source</h3>
+                <input id="sourceListId" type="hidden">
+                <div class="form-group">
+                    <label for="sourceListName">Name</label>
+                    <input id="sourceListName" type="text" required placeholder="e.g., RFC1918 or Office Networks">
+                </div>
+                <div class="form-group">
+                    <label for="sourceListHostnames">Hostnames / IPv4 / CIDR / External URL <small>(one per line, # for comments)</small></label>
+                    <textarea id="sourceListHostnames" rows="6" placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"></textarea>
+                    <span class="hint">Add entries, select nested sources, or both.</span>
+                </div>
+                <div class="form-group">
+                    <label>Include Other Sources</label>
+                    <div id="nestedSourceLists" class="source-picker"></div>
+                    <span class="hint">Self-references and sources that would create a cycle are excluded.</span>
+                </div>
+                <div class="source-manager-actions">
+                    <button class="btn btn-secondary" type="button" onclick="cancelSourceListEdit()">Cancel Edit</button>
+                    <button class="btn btn-primary" type="submit">Save Source</button>
+                </div>
+            </div>
+        </form>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="hideSourceListsModal()">Done</button>
+        </div>
+    </div>
+</div>
+{{end}}

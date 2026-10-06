@@ -24,6 +24,37 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+.source-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.5rem;
+}
+
+.source-choice,
+.form-group .source-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel-bg);
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.source-choice input { width: auto; margin-top: 0.25rem; accent-color: var(--primary); }
+.source-choice small { display: block; color: var(--text-secondary); font-weight: normal; }
+.source-choice:has(input:checked) { border-color: var(--primary); }
+.source-manager-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
+.source-list-cards { display: grid; gap: 0.6rem; margin: 1rem 0; }
+.source-list-card { padding: 0.9rem; background: var(--panel-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.source-entry-summary { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8rem; overflow: auto; margin-top: 0.4rem; color: var(--text-secondary); font-size: 0.8rem; }
+#sourceListsModal { z-index: 110; }
+#sourceListsModal > .modal-content > .hint,
+#sourceListsModal > .modal-content > .source-manager-actions,
+#sourceListsContent { margin-left: 1.5rem; margin-right: 1.5rem; }
+
 body {
     font-family: 'Manrope', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background:
