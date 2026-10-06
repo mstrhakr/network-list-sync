@@ -32,7 +32,14 @@
                 </div>
                 <div class="form-group">
                     <label for="hostnames">Hostnames / IPv4 / CIDR / External URL <small>(one per line, # for comments)</small></label>
-                    <textarea id="hostnames" rows="8" required placeholder="example1.domain.com&#10;203.0.113.10&#10;198.51.100.0/24&#10;https://www.cloudflare.com/ips-v4&#10;# This is a comment"></textarea>
+                    <textarea id="hostnames" rows="8" placeholder="example1.domain.com&#10;203.0.113.10&#10;198.51.100.0/24&#10;https://www.cloudflare.com/ips-v4&#10;# This is a comment"></textarea>
+                    <span class="hint">Optional when reusable sources are selected below.</span>
+                </div>
+                <div class="form-group">
+                    <label>Include Reusable Sources</label>
+                    <div id="jobSourceLists" class="source-picker"></div>
+                    <button type="button" class="btn btn-small btn-secondary" onclick="showSourceListsModal()" style="margin-top:0.4rem">Manage Sources</button>
+                    <span class="hint">Sources can include other sources. Current entries are expanded on every run, then deduplicated.</span>
                     <button type="button" class="btn btn-small btn-secondary" onclick="previewResolve()" style="margin-top:0.4rem">Preview DNS Resolution</button>
                     <div id="resolvePreview" class="resolve-preview hidden"></div>
                 </div>

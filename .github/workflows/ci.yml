@@ -35,6 +35,17 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Test reusable source UI
+        run: |
+          node --check ui/static/js/app.js
+          node --check ui/static/js/source-lists.js
+          node --test ui/static/js/source-lists.test.cjs
+
       - name: Build
         run: |
           go build -trimpath \

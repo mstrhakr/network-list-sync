@@ -23,7 +23,8 @@ It supports multiple endpoint providers in one deployment, currently:
 - Built-in local authentication with persistent server-side sessions
 - First-start admin bootstrap (interactive in UI or via Docker environment)
 - Cron scheduling with manual run support
-- DNS preview before saving a job
+- DNS preview before saving a job, including reusable sources
+- Reusable source lists with nested includes and an editable RFC1918 preset
 - Hostname plus literal IPv4 and IPv4 CIDR inputs
 - External URL list inputs (HTTP/HTTPS), for example Cloudflare IP ranges
 - Run history and per-run details
@@ -42,10 +43,12 @@ Common examples:
 ## How It Works
 
 1. Add one or more endpoints in the UI.
-2. Create a sync job with hostnames/IP inputs.
+2. Create a sync job with reusable sources, inline hostnames/IP inputs, or both.
 3. Assign a primary target list and optional additional targets.
 4. Run manually or on schedule.
-5. The service resolves DNS, computes diffs, updates provider lists, and stores run history.
+5. Each run freshly expands nested sources, resolves DNS and external URLs, deduplicates/optimizes the combined entries, computes diffs, updates provider lists, and stores run history.
+
+Sources are flattened into IP/CIDR entries for every target provider; native remote list nesting is not used.
 
 ## Before You Start
 
@@ -164,9 +167,9 @@ Example:
 3. Test connection and save.
 4. Create a new sync job.
 5. Choose primary endpoint and primary target list.
-6. Add hostnames, IPv4, CIDR, or external URL list entries (one per line).
+6. Select **Include Reusable Sources** and/or add inline hostnames, IPv4, CIDR, or external URL list entries (one per line).
 7. Optionally add additional endpoint/list targets.
-8. Save and run the job.
+8. Preview the combined inputs, then save and run the job.
 9. Review logs and target list state.
 
 Example input:
@@ -182,6 +185,16 @@ synthetics.grafana.net
 # External source list
 https://www.cloudflare.com/ips-v4
 ```
+
+### Reusable Sources
+
+Open **Reusable Sources**, then choose **New Source**. Give the source a name and add hostnames, literal IPv4 addresses, IPv4 CIDRs, or external HTTP/HTTPS list URLs, one per line. A source can also include other sources. Sources have no target or schedule; jobs select them through **Include Reusable Sources**, with optional inline hostnames/entries. Job preview includes the selected sources and their nested includes.
+
+**RFC1918 Preset** adds an editable source named **RFC1918** containing `10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`. These are private IPv4 ranges only, not loopback, link-local, or IPv6 ranges.
+
+Cycles are prevented. A missing source reference fails closed rather than updating targets with an incomplete expansion. Deletion is blocked while a source is referenced by another source or a job.
+
+Source changes apply on the next manual or scheduled job run, not as an immediate push. Existing retention may keep removed entries until the configured retention expires; disable retention for immediate removal on the next run.
 
 ## Operational Tips
 
@@ -212,6 +225,18 @@ All `/api/*` endpoints require an authenticated session.
 | GET | /api/instances/{id}/target-lists | List provider target lists |
 | POST | /api/instances/test | Test endpoint connection |
 
+### Reusable Source Lists
+
+| Method | Path | Description |
+| -------- | ------ | ------------- |
+| GET | /api/source-lists | List sources |
+| POST | /api/source-lists | Create source |
+| GET | /api/source-lists/{id} | Get source |
+| PUT | /api/source-lists/{id} | Update source |
+| DELETE | /api/source-lists/{id} | Delete unreferenced source |
+
+Create/update bodies use `name`, `hostnames` (newline-separated entries), and `included_list_ids` (a JSON number array, e.g. `[1, 2]`) for nested sources. Writes require an admin session; deleting a referenced source returns `409 Conflict`.
+
 ### Jobs
 
 | Method | Path | Description |
@@ -226,11 +251,13 @@ All `/api/*` endpoints require an authenticated session.
 | GET | /api/jobs/{id}/logs | Get job run history |
 | GET | /api/jobs/{id}/logs/{logID}/targets/{targetID} | Get exact target items sent during a run |
 
+Job create/update and `POST /api/resolve` bodies accept `included_list_ids` as a JSON number array (e.g. `[1, 2]`), alongside optional inline `hostnames`. Preview expands the same source includes as a job run.
+
 ### DNS And Health
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /api/resolve | Preview DNS resolution |
+| POST | /api/resolve | Preview inline inputs and reusable sources |
 | GET | /api/health | Health check |
 | GET | /api/dns-servers | List DNS servers |
 | POST | /api/dns-servers | Create DNS server |
