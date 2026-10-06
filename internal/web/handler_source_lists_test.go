@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -360,5 +361,60 @@ func TestSourceListHTTPDatabaseErrors(t *testing.T) {
 		if rr.Code != http.StatusInternalServerError {
 			t.Fatalf("closed DB status=%d body=%s", rr.Code, rr.Body.String())
 		}
+	}
+}
+
+func TestJobSourceHTTPDatabaseErrors(t *testing.T) {
+	s, err := store.New(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{store: s}
+	for _, tc := range []struct {
+		name string
+		fn   http.HandlerFunc
+	}{
+		{"create", h.createJob},
+		{"update", h.updateJob},
+		{"preview", h.resolveHostnames},
+	} {
+		for _, entries := range []string{`"hostnames":"192.0.2.1"`, `"included_list_ids":[1]`} {
+			t.Run(tc.name+"/"+entries, func(t *testing.T) {
+				body := `{"name":"job","instance_id":1,"target_list_id":"target",` + entries + `}`
+				req := httptest.NewRequest(http.MethodPost, "/api/jobs/1", strings.NewReader(body))
+				req.SetPathValue("id", "1")
+				req = req.WithContext(context.WithValue(req.Context(), principalContextKey, &auth.Principal{IsAdmin: true}))
+				rr := httptest.NewRecorder()
+				tc.fn(rr, req)
+				if rr.Code != http.StatusInternalServerError {
+					t.Fatalf("closed DB status=%d want=500 body=%s", rr.Code, rr.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func TestSourceErrorClassificationUsesType(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"wrapped validation", fmt.Errorf("nested source: %w", &store.SourceValidationError{Message: "invalid reference"}), http.StatusBadRequest},
+		{"storage", errors.New("database is closed"), http.StatusInternalServerError},
+		{"validation-like storage text", errors.New("source list ID 1 does not exist"), http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, write := range []func(http.ResponseWriter, error){writeSourceEntriesError, writeSourceListError} {
+				rr := httptest.NewRecorder()
+				write(rr, tc.err)
+				if rr.Code != tc.status {
+					t.Fatalf("status=%d want=%d body=%s", rr.Code, tc.status, rr.Body.String())
+				}
+			}
+		})
 	}
 }

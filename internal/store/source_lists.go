@@ -18,6 +18,16 @@ type SourceList struct {
 	UpdatedAt       string  `json:"updated_at"`
 }
 
+// SourceValidationError reports invalid source input, not a storage failure.
+// It remains identifiable through wrapped nested-list errors with errors.As.
+type SourceValidationError struct {
+	Message string
+}
+
+func (e *SourceValidationError) Error() string {
+	return e.Message
+}
+
 func (s *Store) migrateSourceLists() error {
 	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS source_lists (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,14 +150,14 @@ func expandSources(sources []SourceList, hostnames string, ids []int64) (string,
 	var visit func(int64) error
 	visit = func(id int64) error {
 		if state[id] == 1 {
-			return fmt.Errorf("source list cycle detected at ID %d", id)
+			return &SourceValidationError{Message: fmt.Sprintf("source list cycle detected at ID %d", id)}
 		}
 		if state[id] == 2 {
 			return nil
 		}
 		source, ok := graph[id]
 		if !ok {
-			return fmt.Errorf("source list ID %d does not exist", id)
+			return &SourceValidationError{Message: fmt.Sprintf("source list ID %d does not exist", id)}
 		}
 		state[id] = 1
 		appendEntries(source.Hostnames)
@@ -169,7 +179,7 @@ func expandSources(sources []SourceList, hostnames string, ids []int64) (string,
 
 func validateSourceContent(hostnames string, ids []int64) error {
 	if strings.TrimSpace(hostnames) == "" && len(ids) == 0 {
-		return fmt.Errorf("source entries require hostnames or included source lists")
+		return &SourceValidationError{Message: "source entries require hostnames or included source lists"}
 	}
 	return nil
 }
@@ -216,7 +226,7 @@ func (s *Store) writeSourceList(source *SourceList, update bool) (int64, error) 
 	s.sourceMu.Lock()
 	defer s.sourceMu.Unlock()
 	if source == nil || strings.TrimSpace(source.Name) == "" {
-		return 0, fmt.Errorf("source list name is required")
+		return 0, &SourceValidationError{Message: "source list name is required"}
 	}
 	value := *source
 	value.Name = strings.TrimSpace(value.Name)

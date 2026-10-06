@@ -462,7 +462,7 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.ValidateSourceEntries(job.Hostnames, job.IncludedListIDs); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeSourceEntriesError(w, err)
 		return
 	}
 	if len(job.Targets) == 0 {
@@ -478,7 +478,7 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.store.CreateJob(&job)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeSourceEntriesError(w, err)
 		return
 	}
 
@@ -526,7 +526,7 @@ func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.ValidateSourceEntries(job.Hostnames, job.IncludedListIDs); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeSourceEntriesError(w, err)
 		return
 	}
 	if len(job.Targets) == 0 {
@@ -542,7 +542,7 @@ func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
 
 	job.ID = id
 	if err := h.store.UpdateJob(&job); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeSourceEntriesError(w, err)
 		return
 	}
 
@@ -703,7 +703,7 @@ func (h *Handler) resolveHostnames(w http.ResponseWriter, r *http.Request) {
 
 	hostnames, err := h.store.ExpandSourceEntries(input.Hostnames, input.IncludedListIDs)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeSourceEntriesError(w, err)
 		return
 	}
 	extraServers, err := h.store.ListEnabledDNSServerAddresses()
