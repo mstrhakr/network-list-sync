@@ -23,6 +23,8 @@ func TestRealTemplatesRenderReusableSources(t *testing.T) {
 	for _, marker := range []string{
 		`id="sourceListsModal"`, `id="jobSourceLists"`, `id="nestedSourceLists"`,
 		`/static/js/source-lists.js`, `RFC1918 Preset`,
+		`modal-fixed-shell modal-run-history`, `aria-label="Close run history"`,
+		`class="logs-scroll-body"`, `id="logsSummary"`, `onchange="showLogs(activeLogsJobId)"`,
 	} {
 		if !strings.Contains(rendered.String(), marker) {
 			t.Errorf("rendered UI missing %q", marker)

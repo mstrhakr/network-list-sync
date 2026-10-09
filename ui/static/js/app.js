@@ -5,7 +5,8 @@ const isAdminUser = principalData.isAdmin === true;
 const currentUsername = typeof principalData.username === 'string' ? principalData.username : '';
 let jobs = [];
 let controllers = [];
-const logDetailsMap = new Map();
+let activeLogsJobId = null;
+let logsLoadSeq = 0;
 const schedulePresets = {
     manual: '',
     hourly: '0 * * * *',
@@ -1041,32 +1042,27 @@ async function runJob(id) {
 }
 
 async function showLogs(id) {
+    activeLogsJobId = id;
+    const loadSeq = ++logsLoadSeq;
     const job = jobs.find(function(item) { return item.id === id; });
     document.getElementById('logsModalTitle').textContent = 'Run History: ' + (job ? job.name : 'Unknown');
 
     const content = document.getElementById('logsContent');
     content.innerHTML = '<p class="empty-text">Loading...</p>';
+    content.scrollTop = 0;
+    document.getElementById('logsSummary').textContent = 'Loading runs…';
     document.getElementById('logsModal').classList.remove('hidden');
 
-    let limitWrap = document.getElementById('logLimitWrap');
-    if (!limitWrap) {
-        limitWrap = document.createElement('div');
-        limitWrap.id = 'logLimitWrap';
-        limitWrap.className = 'log-limit-bar';
-        limitWrap.innerHTML = '<label for="logLimit">Show last</label>' +
-            '<select id="logLimit" class="inline-select">' +
-            [50, 100, 150, 200].map(function(n) { return '<option value="' + n + '">' + n + '</option>'; }).join('') + '</select> logs';
-        content.parentElement.insertBefore(limitWrap, content);
-        document.getElementById('logLimit').addEventListener('change', function() {
-            showLogs(id);
-        });
-    }
-    const limit = document.getElementById('logLimit') ? document.getElementById('logLimit').value : 50;
+    const limit = document.getElementById('logLimit').value;
     try {
         const resp = await fetch(API + '/jobs/' + id + '/logs?limit=' + limit);
+        if (!resp.ok) throw new Error('Failed to load logs');
         const logs = await resp.json();
+        if (loadSeq !== logsLoadSeq) return;
         renderLogs(logs);
     } catch (err) {
+        if (loadSeq !== logsLoadSeq) return;
+        document.getElementById('logsSummary').textContent = 'Unable to load runs';
         content.innerHTML = '<p class="text-error">Failed to load logs.</p>';
     }
 }
@@ -1352,49 +1348,46 @@ function triggerJobActionFromMenu(action) {
 
 function renderLogs(logs) {
     const content = document.getElementById('logsContent');
-    logDetailsMap.clear();
+    document.getElementById('logsSummary').textContent = logs.length + (logs.length === 1 ? ' run' : ' runs') + ' · Newest first';
 
     if (logs.length === 0) {
         content.innerHTML = '<p class="empty-text">No run history yet. Click "Run Now" to trigger a sync.</p>';
         return;
     }
 
-    logs.forEach(function(log) {
-        if (log.details) {
-            logDetailsMap.set(log.id, log.details);
-        }
-    });
-
     content.innerHTML =
-        '<table class="logs-table"><thead><tr>' +
-        '<th>Started</th><th>Status</th><th>Changes</th><th>Message</th><th>Optimization</th><th>Details / Sent List</th>' +
+        '<table class="logs-table run-history-table" aria-label="Job runs"><thead><tr>' +
+        '<th scope="col">Started</th><th scope="col">Status</th><th scope="col">Changes</th><th scope="col">Message</th><th scope="col">Optimization</th><th scope="col">Details / Sent Lists</th>' +
         '</tr></thead><tbody>' +
         logs.map(function(log) {
             const badgeClass = log.status === 'success' ? 'badge-success' : log.status === 'running' ? 'badge-warning' : 'badge-error';
             const stats = log.stats || {};
+            const count = function(value) { return Number(value || 0).toLocaleString(); };
             const optimization = log.stats
-                ? 'Input entries: ' + (stats.input_entries || 0) +
-                    '<br>Unique after dedupe: ' + (stats.unique_entries || 0) +
-                    '<br>Duplicates removed: ' + (stats.duplicate_entries || 0) +
-                    '<br>Covered entries: ' + (stats.covered_entries_removed || 0) +
-                    '<br>New CIDRs: ' + (stats.cidrs_created || 0) +
-                    '<br>Final entries: ' + (stats.output_entries || 0) +
-                    '<br>Entries saved: ' + (stats.entries_saved || 0)
-                : '-';
+                ? '<div class="logs-entry-flow"><span>Input <strong>' + count(stats.input_entries) + '</strong></span>' +
+                    '<span aria-hidden="true">→</span><span>Final <strong>' + count(stats.output_entries) + '</strong></span></div>' +
+                    '<dl class="logs-stats">' +
+                    '<dt>Unique after dedupe</dt><dd>' + count(stats.unique_entries) + '</dd>' +
+                    '<dt>Duplicates removed</dt><dd>' + count(stats.duplicate_entries) + '</dd>' +
+                    '<dt>Covered entries</dt><dd>' + count(stats.covered_entries_removed) + '</dd>' +
+                    '<dt>New CIDRs</dt><dd>' + count(stats.cidrs_created) + '</dd>' +
+                    '<dt>Entries saved</dt><dd class="text-success">' + count(stats.entries_saved) + '</dd></dl>'
+                : '<span class="text-muted">No optimization stats</span>';
             const targetButtons = (Array.isArray(log.targets) ? log.targets : []).map(function(target) {
-                return '<button class="btn btn-small btn-secondary" onclick="viewRunTargetSnapshot(' +
+                return '<div class="logs-target"><div class="logs-target-label">' + escapeHtml(target.label || 'Target') + '</div>' +
+                    '<button class="btn btn-small btn-secondary" onclick="viewRunTargetSnapshot(' +
                     log.job_id + ',' + log.id + ',' + target.id + ', this)">' +
-                    'View sent list (' + escapeHtml(target.label) + ', ' + target.entry_count + ')</button>';
-            }).join('<br>');
+                    'View sent list <span class="logs-target-count">' + count(target.entry_count) + ' entries</span></button></div>';
+            }).join('');
             return '<tr>' +
-                '<td>' + formatTime(log.started_at) + '</td>' +
-                '<td><span class="badge ' + badgeClass + '">' + escapeHtml(log.status) + '</span></td>' +
-                '<td>' + log.changes_made + '</td>' +
-                '<td>' + escapeHtml(log.message) + '</td>' +
-                '<td>' + optimization + '</td>' +
-                '<td>' + (log.details ?
-                    '<button class="btn btn-small btn-secondary" onclick="toggleDetails(' + log.id + ', this)">Details</button>'
-                    : '') + (targetButtons ? (log.details ? '<br>' : '') + targetButtons : (!log.details ? '-' : '')) +
+                '<td data-label="Started" class="logs-started">' + formatTime(log.started_at) + '</td>' +
+                '<td data-label="Status" class="logs-status"><span class="badge ' + badgeClass + '">' + escapeHtml(log.status) + '</span></td>' +
+                '<td data-label="Changes" class="logs-changes">' + count(log.changes_made) + '</td>' +
+                '<td data-label="Message" class="logs-message">' + escapeHtml(log.message || '—') + '</td>' +
+                '<td data-label="Optimization" class="logs-optimization">' + optimization + '</td>' +
+                '<td data-label="Details / Sent Lists" class="logs-actions"><div class="logs-actions-stack">' + (log.details ?
+                    '<details class="logs-details"><summary>Run details</summary><pre class="details-block">' + escapeHtml(log.details) + '</pre></details>'
+                    : '') + targetButtons + (!log.details && !targetButtons ? '<span class="text-muted">No details available</span>' : '') + '</div>' +
                 '</td></tr>';
         }).join('') +
         '</tbody></table>';
@@ -1419,16 +1412,6 @@ async function viewRunTargetSnapshot(jobId, logId, targetId, button) {
         button.disabled = false;
         showToast(err.message, 'error');
     }
-}
-
-function toggleDetails(logId, btn) {
-    const details = logDetailsMap.get(logId);
-    if (!details) return;
-    const pre = document.createElement('pre');
-    pre.className = 'details-block';
-    pre.textContent = details;
-    btn.parentElement.appendChild(pre);
-    btn.remove();
 }
 
 function showJobModal(job) {
