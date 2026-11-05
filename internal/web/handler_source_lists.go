@@ -149,7 +149,7 @@ func writeSourceListError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
 	case strings.HasPrefix(message, "source list ") &&
-		(strings.Contains(message, " is referenced by source list ") || strings.Contains(message, " is referenced by job ")):
+		(strings.Contains(message, " is referenced by source list ") || strings.Contains(message, " is referenced by job ") || strings.Contains(message, " is excluded by job ")):
 		status = http.StatusConflict
 	}
 	writeError(w, status, err.Error())

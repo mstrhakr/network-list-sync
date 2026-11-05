@@ -91,29 +91,60 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 	if err != nil {
 		return SyncResult{Status: "error", Message: fmt.Sprintf("DNS resolution: %v", err)}
 	}
+	resolvedIPs := hostIPs
+	var excludedIPs map[string]string
+	if strings.TrimSpace(job.ExcludedHostnames) != "" || len(job.ExcludedListIDs) > 0 {
+		excludedHostnames, err := db.ExpandSourceEntries(job.ExcludedHostnames, job.ExcludedListIDs)
+		if err != nil {
+			return SyncResult{Status: "error", Message: fmt.Sprintf("expand exclusion source lists: %v", err)}
+		}
+		excludedIPs, err = ResolveHostnamesStrict(excludedHostnames, servers)
+		if err != nil {
+			return SyncResult{Status: "error", Message: fmt.Sprintf("exclusion DNS resolution: %v", err)}
+		}
+	}
 
 	now := time.Now().UTC()
 	retention := observedIPRetention(job)
 	inputEntries := resolutionStats.ResolvedEntries
 	if retention > 0 {
 		retentionCutoff := now.Add(-retention).Format(time.RFC3339)
-		if err := db.UpsertObservedIPs(job.ID, hostIPs, now.Format(time.RFC3339)); err != nil {
-			return SyncResult{Status: "error", Message: fmt.Sprintf("record observed IPs: %v", err)}
-		}
-		if err := db.DeleteExpiredObservedIPs(job.ID, retentionCutoff); err != nil {
-			return SyncResult{Status: "error", Message: fmt.Sprintf("cleanup observed IPs: %v", err)}
-		}
 		observedIPs, err := db.ListObservedIPs(job.ID, retentionCutoff)
 		if err != nil {
 			return SyncResult{Status: "error", Message: fmt.Sprintf("load observed IPs: %v", err)}
 		}
-		inputEntries += countObservedIPsNotCurrent(observedIPs, hostIPs)
-		hostIPs = mergeResolvedIPs(observedIPs, hostIPs)
-	} else {
-		if err := db.DeleteObservedIPs(job.ID); err != nil {
-			return SyncResult{Status: "error", Message: fmt.Sprintf("clear observed IPs: %v", err)}
+		inputEntries += countObservedIPsNotCurrent(observedIPs, resolvedIPs)
+		hostIPs = mergeResolvedIPs(observedIPs, resolvedIPs)
+	}
+	_, preExclusionStats, err := OptimizeIPv4Entries(SortedIPs(hostIPs), false)
+	if err != nil {
+		return SyncResult{Status: "error", Message: fmt.Sprintf("optimize included IPv4 entries: %v", err)}
+	}
+	preExclusionStats.InputEntries = inputEntries
+	preExclusionStats.DuplicateEntries = inputEntries - preExclusionStats.UniqueEntries
+	exclusionStats := ExclusionStats{InputEntries: len(excludedIPs), OutputEntries: len(hostIPs)}
+	if len(excludedIPs) > 0 {
+		hostIPs, exclusionStats, err = SubtractIPv4Entries(hostIPs, excludedIPs)
+		if err != nil {
+			return SyncResult{Status: "error", Message: fmt.Sprintf("apply source exclusions: %v", err)}
 		}
 	}
+	if len(hostIPs) == 0 && !job.AllowEmptyOutput {
+		return SyncResult{
+			Status:  "error",
+			Message: "exclusions remove all resolved entries; enable allow empty output to clear target lists",
+			Details: formatExclusionDetails(excludedIPs, exclusionStats),
+			Stats: OptimizationStats{
+				InputEntries: inputEntries, UniqueEntries: preExclusionStats.UniqueEntries,
+				DuplicateEntries:        preExclusionStats.DuplicateEntries,
+				CoveredEntriesRemoved:   preExclusionStats.CoveredEntriesRemoved,
+				ExclusionInputEntries:   exclusionStats.InputEntries,
+				IncludedEntriesAffected: exclusionStats.IncludedEntriesAffected,
+				EntriesAfterExclusions:  0,
+			},
+		}
+	}
+	entriesAfterExclusions := len(hostIPs)
 
 	targets, err := db.ListJobTargets(job.ID)
 	if err != nil {
@@ -122,19 +153,37 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 	if len(targets) == 0 {
 		targets = []store.JobTarget{{ControllerID: job.ControllerID, NetworkListID: job.NetworkListID}}
 	}
-
 	newIPs, optimizationStats, err := OptimizeIPv4Entries(SortedIPs(hostIPs), job.CollapseCIDRs)
 	if err != nil {
 		return SyncResult{Status: "error", Message: fmt.Sprintf("optimize IPv4 entries: %v", err)}
 	}
+	if retention > 0 {
+		retentionCutoff := now.Add(-retention).Format(time.RFC3339)
+		if err := db.UpsertObservedIPs(job.ID, resolvedIPs, now.Format(time.RFC3339)); err != nil {
+			return SyncResult{Status: "error", Message: fmt.Sprintf("record observed IPs: %v", err)}
+		}
+		if err := db.DeleteExpiredObservedIPs(job.ID, retentionCutoff); err != nil {
+			return SyncResult{Status: "error", Message: fmt.Sprintf("cleanup observed IPs: %v", err)}
+		}
+	} else if err := db.DeleteObservedIPs(job.ID); err != nil {
+		return SyncResult{Status: "error", Message: fmt.Sprintf("clear observed IPs: %v", err)}
+	}
 	optimizationStats.InputEntries = inputEntries
-	optimizationStats.DuplicateEntries = inputEntries - optimizationStats.UniqueEntries
-	optimizationStats.EntriesSaved = inputEntries - len(newIPs)
+	optimizationStats.UniqueEntries = preExclusionStats.UniqueEntries
+	optimizationStats.DuplicateEntries = preExclusionStats.DuplicateEntries
+	optimizationStats.CoveredEntriesRemoved = preExclusionStats.CoveredEntriesRemoved
+	optimizationStats.ExclusionInputEntries = exclusionStats.InputEntries
+	optimizationStats.IncludedEntriesAffected = exclusionStats.IncludedEntriesAffected
+	optimizationStats.EntriesAfterExclusions = exclusionStats.OutputEntries
+	optimizationStats.EntriesSaved = entriesAfterExclusions - len(newIPs)
 	totalChanges := 0
 	succeeded := 0
 	failed := 0
 	var detailParts []string
 	var targetSnapshots []store.RunTargetSnapshot
+	if exclusionStats.InputEntries > 0 {
+		detailParts = append(detailParts, formatExclusionDetails(excludedIPs, exclusionStats))
+	}
 
 	for _, target := range targets {
 		ctrl, err := db.GetController(target.ControllerID)
@@ -194,6 +243,20 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 		Stats:       optimizationStats,
 		Targets:     targetSnapshots,
 	}
+}
+
+func formatExclusionDetails(excluded map[string]string, stats ExclusionStats) string {
+	const maxLoggedExclusions = 10
+	var details strings.Builder
+	fmt.Fprintf(&details, "Exclusions: %d resolved entries; included entries affected: %d; %d entries remain before optimization", stats.InputEntries, stats.IncludedEntriesAffected, stats.OutputEntries)
+	entries := SortedIPs(excluded)
+	for i := 0; i < len(entries) && i < maxLoggedExclusions; i++ {
+		fmt.Fprintf(&details, "\n! %s (%s)", entries[i], excluded[entries[i]])
+	}
+	if len(entries) > maxLoggedExclusions {
+		fmt.Fprintf(&details, "\n... and %d more exclusion entries", len(entries)-maxLoggedExclusions)
+	}
+	return details.String()
 }
 
 func countObservedIPsNotCurrent(observed, current map[string]string) int {

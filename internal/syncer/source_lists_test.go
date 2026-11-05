@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mstrhakr/network-list-sync/internal/clients"
 	"github.com/mstrhakr/network-list-sync/internal/store"
@@ -338,4 +339,134 @@ func TestSourceListsCycleSafeguardPreservesRunnableGraph(t *testing.T) {
 		t.Fatalf("Run after rejected cycles = %+v", result)
 	}
 	f.assertPayload(t, 1, []clients.TrafficMatchItem{{Type: "SUBNET", Value: "10.0.0.0/8"}})
+}
+
+func TestSourceExclusionsApplyAfterRetainedIPsAreMerged(t *testing.T) {
+	f := newSourceSyncFixture(t)
+	excluded := f.source(t, "Excluded subnet", "192.0.2.0/24")
+	job := f.job(t, "192.0.2.2\n198.51.100.1")
+	job.ExcludedListIDs = []int64{excluded.ID}
+	job.ObservedIPTTLHours = 24
+	if err := f.db.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.UpsertObservedIPs(job.ID, map[string]string{"192.0.2.1": "previous.example"}, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+
+	result := New().Run(f.db, job.ID)
+	if result.Status != "success" || result.Stats.ExclusionInputEntries != 1 || result.Stats.IncludedEntriesAffected != 2 || result.Stats.EntriesAfterExclusions != 1 {
+		t.Fatalf("Run = %+v", result)
+	}
+	f.assertPayload(t, 1, []clients.TrafficMatchItem{{Type: "IP_ADDRESS", Value: "198.51.100.1"}})
+}
+
+func TestSourceExclusionsRequireExplicitEmptyOutput(t *testing.T) {
+	f := newSourceSyncFixture(t)
+	job := f.job(t, "10.0.0.0/24")
+	job.ExcludedHostnames = "10.0.0.0/24"
+	job.ObservedIPTTLHours = 24
+	if err := f.db.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	if result := New().Run(f.db, job.ID); result.Status != "error" ||
+		!strings.Contains(result.Message, "enable allow empty output") || !strings.Contains(result.Details, "10.0.0.0/24") {
+		t.Fatalf("empty output Run = %+v", result)
+	}
+	f.mu.Lock()
+	requests, writes := f.requests, len(f.payloads)
+	f.mu.Unlock()
+	if requests != 0 || writes != 0 {
+		t.Fatalf("empty output reached provider: requests=%d writes=%d", requests, writes)
+	}
+	rawDB, err := sql.Open("sqlite", f.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rawDB.Close()
+	var observed int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM job_observed_ips WHERE job_id = ?`, job.ID).Scan(&observed); err != nil {
+		t.Fatal(err)
+	}
+	if observed != 0 {
+		t.Fatalf("blocked empty output cached %d observed entries", observed)
+	}
+
+	job.AllowEmptyOutput = true
+	if err := f.db.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	f.list.Items = []clients.TrafficMatchItem{{Type: "IP_ADDRESS", Value: "10.0.0.1"}}
+	result := New().Run(f.db, job.ID)
+	if result.Status != "success" || result.Stats.EntriesAfterExclusions != 0 {
+		t.Fatalf("allow empty output Run = %+v", result)
+	}
+	f.assertPayload(t, 1, []clients.TrafficMatchItem{})
+}
+
+func TestSourceExclusionFragmentationDoesNotReportNegativeSavings(t *testing.T) {
+	f := newSourceSyncFixture(t)
+	job := f.job(t, "10.0.0.0/24")
+	job.ExcludedHostnames = "10.0.0.1"
+	if err := f.db.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	result := New().Run(f.db, job.ID)
+	if result.Status != "success" || result.Stats.EntriesAfterExclusions != 8 || result.Stats.OutputEntries != 8 || result.Stats.EntriesSaved != 0 {
+		t.Fatalf("fragmenting exclusion Run = %+v", result)
+	}
+	if result.Stats.EntriesSaved < 0 {
+		t.Fatalf("negative optimizer savings = %+v", result.Stats)
+	}
+}
+
+func TestSourceExclusionsRemainAbsentAfterCIDRCollapse(t *testing.T) {
+	f := newSourceSyncFixture(t)
+	job := f.job(t, "10.0.0.0/24")
+	job.ExcludedHostnames = "10.0.0.64/26"
+	job.CollapseCIDRs = true
+	if err := f.db.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	result := New().Run(f.db, job.ID)
+	if result.Status != "success" || result.Stats.EntriesAfterExclusions != 2 || result.Stats.OutputEntries != 2 {
+		t.Fatalf("Run = %+v", result)
+	}
+	f.assertPayload(t, 1, []clients.TrafficMatchItem{
+		{Type: "SUBNET", Value: "10.0.0.0/26"},
+		{Type: "SUBNET", Value: "10.0.0.128/25"},
+	})
+}
+
+func TestSourceExclusionResolutionFailureAbortsBeforeMutation(t *testing.T) {
+	f := newSourceSyncFixture(t)
+	failedList := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer failedList.Close()
+	job := f.job(t, "192.0.2.2")
+	job.ExcludedHostnames = "192.0.2.1\n" + failedList.URL
+	job.ObservedIPTTLHours = 24
+	if err := f.db.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	result := New().Run(f.db, job.ID)
+	if result.Status != "error" || !strings.Contains(result.Message, "exclusion DNS resolution") {
+		t.Fatalf("partial exclusion failure Run = %+v", result)
+	}
+	rawDB, err := sql.Open("sqlite", f.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rawDB.Close()
+	var observed int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM job_observed_ips WHERE job_id = ?`, job.ID).Scan(&observed); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	requests, writes := f.requests, len(f.payloads)
+	f.mu.Unlock()
+	if observed != 0 || requests != 0 || writes != 0 {
+		t.Fatalf("failed exclusion mutated state: observed=%d requests=%d writes=%d", observed, requests, writes)
+	}
 }

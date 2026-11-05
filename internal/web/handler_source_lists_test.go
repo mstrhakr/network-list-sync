@@ -243,6 +243,29 @@ func TestSourceListHTTPPreview(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "192.0.2.1") {
 		t.Fatalf("includes-only preview=%s", rr.Body.String())
 	}
+	excluded := f.createList(t, "excluded", "10.0.0.64/26")
+	rr = f.request(t, http.MethodPost, "/api/resolve", map[string]any{
+		"hostnames": "10.0.0.0/24", "excluded_list_ids": []int64{excluded.ID},
+	}, f.admin, http.StatusOK)
+	var exclusionPreview struct {
+		Excluded []struct {
+			IP string `json:"ip"`
+		} `json:"excluded"`
+		Final []struct {
+			IP string `json:"ip"`
+		} `json:"final"`
+		Stats struct {
+			IncludedEntriesAffected int `json:"included_entries_affected"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &exclusionPreview); err != nil {
+		t.Fatal(err)
+	}
+	if len(exclusionPreview.Excluded) != 1 || len(exclusionPreview.Final) != 2 ||
+		exclusionPreview.Final[0].IP != "10.0.0.0/26" || exclusionPreview.Final[1].IP != "10.0.0.128/25" ||
+		exclusionPreview.Stats.IncludedEntriesAffected != 1 {
+		t.Fatalf("exclusion preview=%s", rr.Body.String())
+	}
 	// Graph validation precedes DNS configuration checks.
 	servers, err := f.store.ListDNSServers()
 	if err != nil {
@@ -264,11 +287,16 @@ func TestSourceListHTTPIncludesOnlyJobs(t *testing.T) {
 	f := newSourceListWebFixture(t)
 	leaf := f.createList(t, "leaf", "192.0.2.1")
 	parent := f.createList(t, "parent", "", leaf.ID)
+	excluded := f.createList(t, "excluded", "192.0.2.3")
 	controllerID, err := f.store.CreateController(&store.Controller{Name: "test", URL: "https://example.test", APIKey: "key"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	job := store.SyncJob{Name: "includes-only", ControllerID: controllerID, NetworkListID: "target", IncludedListIDs: []int64{parent.ID}}
+	job := store.SyncJob{
+		Name: "includes-only", ControllerID: controllerID, NetworkListID: "target",
+		IncludedListIDs: []int64{parent.ID}, ExcludedHostnames: "192.0.2.4",
+		ExcludedListIDs: []int64{excluded.ID}, AllowEmptyOutput: true,
+	}
 	rr := f.request(t, http.MethodPost, "/api/jobs", job, f.admin, http.StatusCreated)
 	var saved store.SyncJob
 	if err := json.Unmarshal(rr.Body.Bytes(), &saved); err != nil {
@@ -276,9 +304,11 @@ func TestSourceListHTTPIncludesOnlyJobs(t *testing.T) {
 	}
 	path := fmt.Sprintf("/api/jobs/%d", saved.ID)
 	got, err := f.store.GetJob(saved.ID)
-	if err != nil || got.Hostnames != "" || !reflect.DeepEqual(got.IncludedListIDs, job.IncludedListIDs) {
+	if err != nil || got.Hostnames != "" || !reflect.DeepEqual(got.IncludedListIDs, job.IncludedListIDs) ||
+		got.ExcludedHostnames != job.ExcludedHostnames || !reflect.DeepEqual(got.ExcludedListIDs, job.ExcludedListIDs) || !got.AllowEmptyOutput {
 		t.Fatalf("saved job=%+v err=%v", got, err)
 	}
+	f.request(t, http.MethodDelete, sourceListPath(excluded.ID), nil, f.admin, http.StatusConflict)
 	f.request(t, http.MethodDelete, sourceListPath(parent.ID), nil, f.admin, http.StatusConflict)
 	job.IncludedListIDs = []int64{leaf.ID}
 	f.request(t, http.MethodPut, path, job, f.admin, http.StatusOK)
@@ -289,6 +319,10 @@ func TestSourceListHTTPIncludesOnlyJobs(t *testing.T) {
 		f.request(t, http.MethodPost, "/api/jobs", job, f.admin, http.StatusBadRequest)
 		f.request(t, http.MethodPut, path, job, f.admin, http.StatusBadRequest)
 	}
+	job.ExcludedListIDs = []int64{99999}
+	f.request(t, http.MethodPost, "/api/jobs", job, f.admin, http.StatusBadRequest)
+	f.request(t, http.MethodPut, path, job, f.admin, http.StatusBadRequest)
+	job.ExcludedListIDs = []int64{excluded.ID}
 	got, err = f.store.GetJob(saved.ID)
 	if err != nil || !reflect.DeepEqual(got.IncludedListIDs, []int64{leaf.ID}) {
 		t.Fatalf("invalid update changed job=%+v err=%v", got, err)
@@ -308,6 +342,7 @@ func TestSourceListHTTPIncludesOnlyJobs(t *testing.T) {
 	f.request(t, http.MethodDelete, path, nil, f.admin, http.StatusNoContent)
 	f.request(t, http.MethodDelete, sourceListPath(parent.ID), nil, f.admin, http.StatusNoContent)
 	f.request(t, http.MethodDelete, sourceListPath(leaf.ID), nil, f.admin, http.StatusNoContent)
+	f.request(t, http.MethodDelete, sourceListPath(excluded.ID), nil, f.admin, http.StatusNoContent)
 }
 
 func TestSourceListJobsWithoutScheduler(t *testing.T) {

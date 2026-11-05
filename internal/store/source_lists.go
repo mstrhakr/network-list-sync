@@ -43,7 +43,7 @@ func (s *Store) migrateSourceLists() error {
 	if err != nil {
 		return err
 	}
-	found := false
+	foundIncluded, foundExcludedHostnames, foundExcludedIDs, foundAllowEmpty := false, false, false, false
 	for rows.Next() {
 		var cid, notNull, pk int
 		var name, kind string
@@ -52,17 +52,43 @@ func (s *Store) migrateSourceLists() error {
 			rows.Close()
 			return err
 		}
-		found = found || name == "included_list_ids"
+		switch name {
+		case "included_list_ids":
+			foundIncluded = true
+		case "excluded_hostnames":
+			foundExcludedHostnames = true
+		case "excluded_list_ids":
+			foundExcludedIDs = true
+		case "allow_empty_output":
+			foundAllowEmpty = true
+		}
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return err
 	}
-	if !found {
+	if !foundIncluded {
 		_, err = s.db.Exec(`ALTER TABLE sync_jobs ADD COLUMN included_list_ids TEXT NOT NULL DEFAULT '[]'`)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	for _, migration := range []struct {
+		found bool
+		query string
+	}{
+		{foundExcludedHostnames, `ALTER TABLE sync_jobs ADD COLUMN excluded_hostnames TEXT NOT NULL DEFAULT ''`},
+		{foundExcludedIDs, `ALTER TABLE sync_jobs ADD COLUMN excluded_list_ids TEXT NOT NULL DEFAULT '[]'`},
+		{foundAllowEmpty, `ALTER TABLE sync_jobs ADD COLUMN allow_empty_output INTEGER NOT NULL DEFAULT 0`},
+	} {
+		if !migration.found {
+			if _, err := s.db.Exec(migration.query); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func normalizeSourceIDs(ids []int64) []int64 {
@@ -81,6 +107,14 @@ func decodeSourceIDs(raw string) ([]int64, error) {
 	var ids []int64
 	if err := json.Unmarshal([]byte(raw), &ids); err != nil || strings.TrimSpace(raw) == "null" {
 		return nil, fmt.Errorf("invalid included_list_ids JSON array: %q", raw)
+	}
+	return normalizeSourceIDs(ids), nil
+}
+
+func decodeExcludedSourceIDs(raw string) ([]int64, error) {
+	var ids []int64
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil || strings.TrimSpace(raw) == "null" {
+		return nil, fmt.Errorf("invalid excluded_list_ids JSON array: %q", raw)
 	}
 	return normalizeSourceIDs(ids), nil
 }
@@ -296,24 +330,33 @@ func (s *Store) DeleteSourceList(id int64) error {
 			}
 		}
 	}
-	rows, err := tx.Query(`SELECT id, name, included_list_ids FROM sync_jobs ORDER BY id`)
+	rows, err := tx.Query(`SELECT id, name, included_list_ids, excluded_list_ids FROM sync_jobs ORDER BY id`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var jobID int64
-		var name, raw string
-		if err := rows.Scan(&jobID, &name, &raw); err != nil {
+		var name, includedRaw, excludedRaw string
+		if err := rows.Scan(&jobID, &name, &includedRaw, &excludedRaw); err != nil {
 			return err
 		}
-		ids, err := decodeSourceIDs(raw)
+		ids, err := decodeSourceIDs(includedRaw)
+		if err != nil {
+			return fmt.Errorf("job %d: %w", jobID, err)
+		}
+		excludedIDs, err := decodeExcludedSourceIDs(excludedRaw)
 		if err != nil {
 			return fmt.Errorf("job %d: %w", jobID, err)
 		}
 		for _, ref := range ids {
 			if ref == id {
 				return fmt.Errorf("source list %d is referenced by job %d (%s)", id, jobID, name)
+			}
+		}
+		for _, ref := range excludedIDs {
+			if ref == id {
+				return fmt.Errorf("source list %d is excluded by job %d (%s)", id, jobID, name)
 			}
 		}
 	}

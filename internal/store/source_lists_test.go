@@ -22,6 +22,45 @@ func sourceTestStore(t *testing.T) *Store {
 	return s
 }
 
+func TestExistingJobsMigrateWithEmptyExclusions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+	legacyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = legacyDB.Exec(`CREATE TABLE sync_jobs (
+		id INTEGER PRIMARY KEY, name TEXT NOT NULL, controller_id INTEGER NOT NULL,
+		network_list_id TEXT NOT NULL, hostnames TEXT NOT NULL,
+		included_list_ids TEXT NOT NULL DEFAULT '[]', schedule TEXT NOT NULL DEFAULT '',
+		enabled INTEGER NOT NULL DEFAULT 1, last_run_at TEXT, last_result TEXT,
+		created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = legacyDB.Exec(`INSERT INTO sync_jobs (id, name, controller_id, network_list_id, hostnames, created_at, updated_at)
+		VALUES (1, 'legacy', 1, 'target', '192.0.2.1', '2026-01-01', '2026-01-01')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	job, err := s.GetJob(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.ExcludedHostnames != "" || len(job.ExcludedListIDs) != 0 || job.AllowEmptyOutput {
+		t.Fatalf("migrated legacy job has unsafe exclusion defaults: %+v", job)
+	}
+}
+
 func createTestSource(t *testing.T, s *Store, name, entries string, ids ...int64) *SourceList {
 	t.Helper()
 	source := &SourceList{Name: name, Hostnames: entries, IncludedListIDs: ids}
@@ -154,22 +193,31 @@ func TestSourceListsJobReferencesAndDeleteGuards(t *testing.T) {
 	s := sourceTestStore(t)
 	leaf := createTestSource(t, s, "leaf", "leaf.example")
 	root := createTestSource(t, s, "root", "", leaf.ID)
+	excluded := createTestSource(t, s, "excluded", "blocked.example")
 	if err := s.DeleteSourceList(leaf.ID); err == nil || !strings.Contains(err.Error(), "source list") || !strings.Contains(err.Error(), "root") {
 		t.Fatalf("source delete guard = %v", err)
 	}
 	job := sourceTestJob(t, s, root.ID, root.ID)
+	job.ExcludedHostnames = "blocked.example"
+	job.ExcludedListIDs = []int64{excluded.ID, excluded.ID}
+	job.AllowEmptyOutput = true
 	id, err := s.CreateJob(job)
 	if err != nil {
 		t.Fatal(err)
 	}
 	job.ID = id
 	stored, err := s.GetJob(id)
-	if err != nil || !reflect.DeepEqual(stored.IncludedListIDs, []int64{root.ID}) {
+	if err != nil || !reflect.DeepEqual(stored.IncludedListIDs, []int64{root.ID}) ||
+		stored.ExcludedHostnames != job.ExcludedHostnames || !reflect.DeepEqual(stored.ExcludedListIDs, []int64{excluded.ID}) || !stored.AllowEmptyOutput {
 		t.Fatalf("job refs = %+v, %v", stored, err)
 	}
 	jobs, err := s.ListJobs()
-	if err != nil || len(jobs) != 1 || !reflect.DeepEqual(jobs[0].IncludedListIDs, []int64{root.ID}) {
+	if err != nil || len(jobs) != 1 || !reflect.DeepEqual(jobs[0].IncludedListIDs, []int64{root.ID}) ||
+		!reflect.DeepEqual(jobs[0].ExcludedListIDs, []int64{excluded.ID}) || !jobs[0].AllowEmptyOutput {
 		t.Fatalf("listed job refs = %+v, %v", jobs, err)
+	}
+	if err := s.DeleteSourceList(excluded.ID); err == nil || !strings.Contains(err.Error(), "excluded by job") {
+		t.Fatalf("excluded source delete guard = %v", err)
 	}
 	if err := s.DeleteSourceList(root.ID); err == nil || !strings.Contains(err.Error(), "job") || !strings.Contains(err.Error(), job.Name) {
 		t.Fatalf("job delete guard = %v", err)
@@ -182,6 +230,11 @@ func TestSourceListsJobReferencesAndDeleteGuards(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(stored.IncludedListIDs, []int64{leaf.ID}) {
 		t.Fatalf("updated job refs = %+v, %v", stored, err)
 	}
+	job.ExcludedListIDs = nil
+	job.AllowEmptyOutput = false
+	if err := s.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteSourceList(root.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +243,9 @@ func TestSourceListsJobReferencesAndDeleteGuards(t *testing.T) {
 		t.Fatalf("legacy empty-hostnames update: %v", err)
 	}
 	if err := s.DeleteSourceList(leaf.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSourceList(excluded.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateJob(sourceTestJob(t, s)); err != nil {
@@ -422,4 +478,3 @@ func TestSourceListJSONContract(t *testing.T) {
 		t.Fatalf("source JSON contract = %s", raw)
 	}
 }
-

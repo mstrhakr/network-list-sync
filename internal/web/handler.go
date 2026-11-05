@@ -465,6 +465,12 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 		writeSourceEntriesError(w, err)
 		return
 	}
+	if strings.TrimSpace(job.ExcludedHostnames) != "" || len(job.ExcludedListIDs) > 0 {
+		if err := h.store.ValidateSourceEntries(job.ExcludedHostnames, job.ExcludedListIDs); err != nil {
+			writeSourceEntriesError(w, err)
+			return
+		}
+	}
 	if len(job.Targets) == 0 {
 		if job.ControllerID == 0 || job.NetworkListID == "" {
 			writeError(w, http.StatusBadRequest, "missing required target fields")
@@ -528,6 +534,12 @@ func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.ValidateSourceEntries(job.Hostnames, job.IncludedListIDs); err != nil {
 		writeSourceEntriesError(w, err)
 		return
+	}
+	if strings.TrimSpace(job.ExcludedHostnames) != "" || len(job.ExcludedListIDs) > 0 {
+		if err := h.store.ValidateSourceEntries(job.ExcludedHostnames, job.ExcludedListIDs); err != nil {
+			writeSourceEntriesError(w, err)
+			return
+		}
 	}
 	if len(job.Targets) == 0 {
 		if job.ControllerID == 0 || job.NetworkListID == "" {
@@ -693,8 +705,10 @@ func (h *Handler) resolveHostnames(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Hostnames       string  `json:"hostnames"`
-		IncludedListIDs []int64 `json:"included_list_ids"`
+		Hostnames         string  `json:"hostnames"`
+		IncludedListIDs   []int64 `json:"included_list_ids"`
+		ExcludedHostnames string  `json:"excluded_hostnames"`
+		ExcludedListIDs   []int64 `json:"excluded_list_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -721,16 +735,48 @@ func (h *Handler) resolveHostnames(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ips := syncer.SortedIPs(hostIPs)
 	type resolvedIP struct {
 		IP       string `json:"ip"`
 		Hostname string `json:"hostname"`
 	}
-	result := make([]resolvedIP, 0, len(ips))
-	for _, ip := range ips {
-		result = append(result, resolvedIP{IP: ip, Hostname: hostIPs[ip]})
+	toResolvedEntries := func(entries map[string]string) []resolvedIP {
+		ips := syncer.SortedIPs(entries)
+		result := make([]resolvedIP, 0, len(ips))
+		for _, ip := range ips {
+			result = append(result, resolvedIP{IP: ip, Hostname: entries[ip]})
+		}
+		return result
 	}
-	writeJSON(w, http.StatusOK, result)
+	if strings.TrimSpace(input.ExcludedHostnames) == "" && len(input.ExcludedListIDs) == 0 {
+		writeJSON(w, http.StatusOK, toResolvedEntries(hostIPs))
+		return
+	}
+	if err := h.store.ValidateSourceEntries(input.ExcludedHostnames, input.ExcludedListIDs); err != nil {
+		writeSourceEntriesError(w, err)
+		return
+	}
+	excludedHostnames, err := h.store.ExpandSourceEntries(input.ExcludedHostnames, input.ExcludedListIDs)
+	if err != nil {
+		writeSourceEntriesError(w, err)
+		return
+	}
+	excludedIPs, err := syncer.ResolveHostnamesStrict(excludedHostnames, extraServers)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "exclusion DNS resolution: "+err.Error())
+		return
+	}
+	finalIPs, exclusionStats, err := syncer.SubtractIPv4Entries(hostIPs, excludedIPs)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "apply exclusions: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"resolved": toResolvedEntries(hostIPs),
+		"excluded": toResolvedEntries(excludedIPs),
+		"final":    toResolvedEntries(finalIPs),
+		"stats":    exclusionStats,
+		"empty":    len(finalIPs) == 0,
+	})
 }
 
 // ---------- DNS Server Handlers ----------

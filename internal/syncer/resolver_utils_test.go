@@ -86,3 +86,13 @@ func TestResolveHostnamesWithStats_CountsDuplicateResolvedEntries(t *testing.T) 
 		t.Fatalf("resolution stats = %+v", stats)
 	}
 }
+
+func TestResolveHostnamesStrictRejectsPartialResolution(t *testing.T) {
+	entries := "192.0.2.1\nexample.com"
+	if got, err := ResolveHostnames(entries, nil); err != nil || len(got) != 1 {
+		t.Fatalf("ResolveHostnames() = %v, %v; want permissive partial result", got, err)
+	}
+	if got, err := ResolveHostnamesStrict(entries, nil); err == nil || got != nil {
+		t.Fatalf("ResolveHostnamesStrict() = %v, %v; want partial-resolution error", got, err)
+	}
+}

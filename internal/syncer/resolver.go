@@ -72,6 +72,15 @@ func ResolveHostnames(hostnamesText string, servers []string) (map[string]string
 
 // ResolveHostnamesWithStats resolves source entries and reports duplicate resolved entries.
 func ResolveHostnamesWithStats(hostnamesText string, servers []string) (map[string]string, ResolutionStats, error) {
+	return resolveHostnamesWithStats(hostnamesText, servers, false)
+}
+
+func ResolveHostnamesStrict(hostnamesText string, servers []string) (map[string]string, error) {
+	result, _, err := resolveHostnamesWithStats(hostnamesText, servers, true)
+	return result, err
+}
+
+func resolveHostnamesWithStats(hostnamesText string, servers []string, strict bool) (map[string]string, ResolutionStats, error) {
 	result := make(map[string]string)
 	resolvedEntries := 0
 	addEntry := func(entry, source string) {
@@ -156,6 +165,9 @@ func ResolveHostnamesWithStats(hostnamesText string, servers []string) (map[stri
 		ResolvedEntries:  resolvedEntries,
 		UniqueEntries:    len(result),
 		DuplicateEntries: resolvedEntries - len(result),
+	}
+	if strict && len(errors) > 0 {
+		return nil, stats, fmt.Errorf("source resolution failed: %s", strings.Join(errors, "; "))
 	}
 	if len(result) == 0 {
 		errMsg := "no IPv4 addresses resolved from hostname list"

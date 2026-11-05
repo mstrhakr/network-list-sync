@@ -35,6 +35,9 @@ type SyncJob struct {
 	Targets            []JobTarget `json:"targets,omitempty"`
 	Hostnames          string      `json:"hostnames"`
 	IncludedListIDs    []int64     `json:"included_list_ids"`
+	ExcludedHostnames  string      `json:"excluded_hostnames"`
+	ExcludedListIDs    []int64     `json:"excluded_list_ids"`
+	AllowEmptyOutput   bool        `json:"allow_empty_output"`
 	Schedule           string      `json:"schedule"`
 	ObservedIPTTLHours int         `json:"observed_ip_ttl_hours"`
 	CollapseCIDRs      bool        `json:"collapse_cidrs"`
@@ -376,7 +379,8 @@ func (s *Store) DeleteController(id int64) error {
 func (s *Store) ListJobs() ([]SyncJob, error) {
 	rows, err := s.db.Query(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.included_list_ids, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
+				j.hostnames, j.included_list_ids, j.excluded_hostnames, j.excluded_list_ids, j.allow_empty_output,
+				j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
@@ -391,14 +395,19 @@ func (s *Store) ListJobs() ([]SyncJob, error) {
 	for rows.Next() {
 		var j SyncJob
 		var enabled int
-		var includes string
+		var includes, excludes string
 		if err := rows.Scan(&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-			&j.Hostnames, &includes, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
+			&j.Hostnames, &includes, &j.ExcludedHostnames, &excludes, &j.AllowEmptyOutput,
+			&j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 			&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 			&j.ControllerName); err != nil {
 			return nil, err
 		}
 		j.IncludedListIDs, err = decodeSourceIDs(includes)
+		if err != nil {
+			return nil, fmt.Errorf("job %d: %w", j.ID, err)
+		}
+		j.ExcludedListIDs, err = decodeExcludedSourceIDs(excludes)
 		if err != nil {
 			return nil, fmt.Errorf("job %d: %w", j.ID, err)
 		}
@@ -421,23 +430,29 @@ func (s *Store) ListJobs() ([]SyncJob, error) {
 func (s *Store) GetJob(id int64) (*SyncJob, error) {
 	var j SyncJob
 	var enabled int
-	var includes string
+	var includes, excludes string
 	err := s.db.QueryRow(`
 		SELECT j.id, j.name, j.controller_id, j.network_list_id,
-				j.hostnames, j.included_list_ids, j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
+				j.hostnames, j.included_list_ids, j.excluded_hostnames, j.excluded_list_ids, j.allow_empty_output,
+				j.schedule, j.observed_ip_ttl_hours, j.collapse_cidrs, j.enabled,
 			j.last_run_at, j.last_result, j.created_at, j.updated_at,
 			COALESCE(c.name, '')
 		FROM sync_jobs j
 		LEFT JOIN controllers c ON c.id = j.controller_id
 		WHERE j.id = ?`, id).Scan(
 		&j.ID, &j.Name, &j.ControllerID, &j.NetworkListID,
-		&j.Hostnames, &includes, &j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
+		&j.Hostnames, &includes, &j.ExcludedHostnames, &excludes, &j.AllowEmptyOutput,
+		&j.Schedule, &j.ObservedIPTTLHours, &j.CollapseCIDRs, &enabled,
 		&j.LastRunAt, &j.LastResult, &j.CreatedAt, &j.UpdatedAt,
 		&j.ControllerName)
 	if err != nil {
 		return nil, err
 	}
 	j.IncludedListIDs, err = decodeSourceIDs(includes)
+	if err != nil {
+		return nil, fmt.Errorf("job %d: %w", j.ID, err)
+	}
+	j.ExcludedListIDs, err = decodeExcludedSourceIDs(excludes)
 	if err != nil {
 		return nil, fmt.Errorf("job %d: %w", j.ID, err)
 	}
@@ -474,13 +489,20 @@ func (s *Store) CreateJob(j *SyncJob) (int64, error) {
 	if err := validateJobSourceIDs(tx, ids); err != nil {
 		return 0, err
 	}
+	excludedIDs := normalizeSourceIDs(j.ExcludedListIDs)
+	if err := validateJobSourceIDs(tx, excludedIDs); err != nil {
+		return 0, err
+	}
 	includes, _ := json.Marshal(ids)
+	excludes, _ := json.Marshal(excludedIDs)
 	result, err := tx.Exec(`
 		INSERT INTO sync_jobs (name, controller_id, network_list_id,
-			 hostnames, included_list_ids, schedule, observed_ip_ttl_hours, collapse_cidrs, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 hostnames, included_list_ids, excluded_hostnames, excluded_list_ids, allow_empty_output,
+			 schedule, observed_ip_ttl_hours, collapse_cidrs, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, string(includes), j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs), boolToInt(j.Enabled),
+		j.Hostnames, string(includes), j.ExcludedHostnames, string(excludes), boolToInt(j.AllowEmptyOutput),
+		j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs), boolToInt(j.Enabled),
 		now, now)
 	if err != nil {
 		return 0, err
@@ -496,6 +518,7 @@ func (s *Store) CreateJob(j *SyncJob) (int64, error) {
 		return 0, err
 	}
 	j.IncludedListIDs = ids
+	j.ExcludedListIDs = excludedIDs
 	return jobID, nil
 }
 
@@ -518,13 +541,20 @@ func (s *Store) UpdateJob(j *SyncJob) error {
 	if err := validateJobSourceIDs(tx, ids); err != nil {
 		return err
 	}
+	excludedIDs := normalizeSourceIDs(j.ExcludedListIDs)
+	if err := validateJobSourceIDs(tx, excludedIDs); err != nil {
+		return err
+	}
 	includes, _ := json.Marshal(ids)
+	excludes, _ := json.Marshal(excludedIDs)
 	_, err = tx.Exec(`
 		UPDATE sync_jobs SET name=?, controller_id=?, network_list_id=?,
-			hostnames=?, included_list_ids=?, schedule=?, observed_ip_ttl_hours=?, collapse_cidrs=?, enabled=?, updated_at=?
+			hostnames=?, included_list_ids=?, excluded_hostnames=?, excluded_list_ids=?, allow_empty_output=?,
+			schedule=?, observed_ip_ttl_hours=?, collapse_cidrs=?, enabled=?, updated_at=?
 		WHERE id=?`,
 		j.Name, primary.ControllerID, primary.NetworkListID,
-		j.Hostnames, string(includes), j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs),
+		j.Hostnames, string(includes), j.ExcludedHostnames, string(excludes), boolToInt(j.AllowEmptyOutput),
+		j.Schedule, j.ObservedIPTTLHours, boolToInt(j.CollapseCIDRs),
 		boolToInt(j.Enabled), now, j.ID)
 	if err != nil {
 		return err
@@ -536,6 +566,7 @@ func (s *Store) UpdateJob(j *SyncJob) error {
 		return err
 	}
 	j.IncludedListIDs = ids
+	j.ExcludedListIDs = excludedIDs
 	return nil
 }
 
