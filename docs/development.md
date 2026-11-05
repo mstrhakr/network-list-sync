@@ -34,6 +34,7 @@ go test ./...
 - Jobs can target one or many endpoint/list pairs.
 - DNS server configuration is stored in SQLite and used by resolve preview and sync runs.
 - Web UI is embedded from [ui/index.html](../ui/index.html).
+- New provider integrations must follow the [Provider Integration Checklist](provider-integration-checklist.md), including its Beta policy when no live endpoint is available.
 
 ## CI/CD Workflows
 
