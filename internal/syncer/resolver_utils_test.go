@@ -92,6 +92,11 @@ func TestResolveHostnamesStrictRejectsPartialResolution(t *testing.T) {
 	if got, err := ResolveHostnames(entries, nil); err != nil || len(got) != 1 {
 		t.Fatalf("ResolveHostnames() = %v, %v; want permissive partial result", got, err)
 	}
+	if got, stats, err := ResolveHostnamesStrictWithStats(entries, nil); err == nil || got != nil {
+		t.Fatalf("ResolveHostnamesStrictWithStats() = %v, %+v, %v; want partial-resolution error", got, stats, err)
+	} else if stats.ResolvedEntries != 1 {
+		t.Fatalf("strict resolution stats = %+v, want the successfully resolved input counted", stats)
+	}
 	if got, err := ResolveHostnamesStrict(entries, nil); err == nil || got != nil {
 		t.Fatalf("ResolveHostnamesStrict() = %v, %v; want partial-resolution error", got, err)
 	}

@@ -87,9 +87,9 @@ func (s *Syncer) execute(db *store.Store, job *store.SyncJob) SyncResult {
 	if len(servers) == 0 {
 		return SyncResult{Status: "error", Message: "no DNS servers configured: add at least one enabled DNS server"}
 	}
-	hostIPs, resolutionStats, err := ResolveHostnamesWithStats(hostnames, servers)
+	hostIPs, resolutionStats, err := ResolveHostnamesStrictWithStats(hostnames, servers)
 	if err != nil {
-		return SyncResult{Status: "error", Message: fmt.Sprintf("DNS resolution: %v", err)}
+		return SyncResult{Status: "error", Message: fmt.Sprintf("source resolution: %v", err)}
 	}
 	resolvedIPs := hostIPs
 	var excludedIPs map[string]string

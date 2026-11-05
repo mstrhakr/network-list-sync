@@ -75,8 +75,12 @@ func ResolveHostnamesWithStats(hostnamesText string, servers []string) (map[stri
 	return resolveHostnamesWithStats(hostnamesText, servers, false)
 }
 
+func ResolveHostnamesStrictWithStats(hostnamesText string, servers []string) (map[string]string, ResolutionStats, error) {
+	return resolveHostnamesWithStats(hostnamesText, servers, true)
+}
+
 func ResolveHostnamesStrict(hostnamesText string, servers []string) (map[string]string, error) {
-	result, _, err := resolveHostnamesWithStats(hostnamesText, servers, true)
+	result, _, err := ResolveHostnamesStrictWithStats(hostnamesText, servers)
 	return result, err
 }
 

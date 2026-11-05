@@ -470,3 +470,35 @@ func TestSourceExclusionResolutionFailureAbortsBeforeMutation(t *testing.T) {
 		t.Fatalf("failed exclusion mutated state: observed=%d requests=%d writes=%d", observed, requests, writes)
 	}
 }
+
+func TestIncludedSourceResolutionFailureAbortsBeforeMutation(t *testing.T) {
+	f := newSourceSyncFixture(t)
+	failedList := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer failedList.Close()
+	job := f.job(t, "192.0.2.2\n"+failedList.URL)
+	job.ObservedIPTTLHours = 24
+	if err := f.db.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	result := New().Run(f.db, job.ID)
+	if result.Status != "error" || !strings.Contains(result.Message, "source resolution") {
+		t.Fatalf("partial included-source failure Run = %+v", result)
+	}
+	rawDB, err := sql.Open("sqlite", f.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rawDB.Close()
+	var observed int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM job_observed_ips WHERE job_id = ?`, job.ID).Scan(&observed); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	requests, writes := f.requests, len(f.payloads)
+	f.mu.Unlock()
+	if observed != 0 || requests != 0 || writes != 0 {
+		t.Fatalf("failed included source mutated state: observed=%d requests=%d writes=%d", observed, requests, writes)
+	}
+}
