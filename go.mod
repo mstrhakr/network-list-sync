@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/miekg/dns v1.1.72
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/yanet-platform/xnetip v0.2.0
 	modernc.org/sqlite v1.50.0
 )
 

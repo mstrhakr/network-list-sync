@@ -4,20 +4,23 @@ import (
 	"fmt"
 	"net/netip"
 	"sort"
-)
 
-const minCollapsedIPv4Prefix = 24
+	"github.com/yanet-platform/xnetip"
+)
 
 // OptimizationStats summarizes the effects of deduplication and CIDR collapse.
 type OptimizationStats struct {
-	InputEntries          int `json:"input_entries"`
-	UniqueEntries         int `json:"unique_entries"`
-	DuplicateEntries      int `json:"duplicate_entries"`
-	CoveredEntriesRemoved int `json:"covered_entries_removed"`
-	CIDRBlocks            int `json:"cidr_blocks"`
-	CIDRsCreated          int `json:"cidrs_created"`
-	OutputEntries         int `json:"output_entries"`
-	EntriesSaved          int `json:"entries_saved"`
+	InputEntries            int `json:"input_entries"`
+	UniqueEntries           int `json:"unique_entries"`
+	DuplicateEntries        int `json:"duplicate_entries"`
+	CoveredEntriesRemoved   int `json:"covered_entries_removed"`
+	CIDRBlocks              int `json:"cidr_blocks"`
+	CIDRsCreated            int `json:"cidrs_created"`
+	ExclusionInputEntries   int `json:"exclusion_input_entries"`
+	IncludedEntriesAffected int `json:"included_entries_affected"`
+	EntriesAfterExclusions  int `json:"entries_after_exclusions"`
+	OutputEntries           int `json:"output_entries"`
+	EntriesSaved            int `json:"entries_saved"`
 }
 
 type ipv4Range struct {
@@ -27,8 +30,8 @@ type ipv4Range struct {
 }
 
 // OptimizeIPv4Entries removes duplicates and entries fully covered by another
-// entry. When collapseCIDRs is true, it also emits the smallest exact CIDR cover
-// whose generated prefixes are /24 or larger; remaining addresses stay as IPs.
+// entry. When collapseCIDRs is true, it also emits the smallest exact CIDR cover;
+// host routes stay as IPs.
 func OptimizeIPv4Entries(entries []string, collapseCIDRs bool) ([]string, OptimizationStats, error) {
 	stats := OptimizationStats{InputEntries: len(entries)}
 	unique := make(map[string]ipv4Range, len(entries))
@@ -77,7 +80,11 @@ func OptimizeIPv4Entries(entries []string, collapseCIDRs bool) ([]string, Optimi
 
 	var output []string
 	if collapseCIDRs {
-		output = collapseIPv4Ranges(covered)
+		collapsed, err := collapseIPv4Ranges(covered)
+		if err != nil {
+			return nil, stats, err
+		}
+		output = collapsed
 	} else {
 		output = make([]string, 0, len(covered))
 		for _, rng := range covered {
@@ -121,70 +128,36 @@ func ipv4Uint(addr netip.Addr) uint64 {
 	return uint64(b[0])<<24 | uint64(b[1])<<16 | uint64(b[2])<<8 | uint64(b[3])
 }
 
-func uintIPv4(value uint64) netip.Addr {
-	return netip.AddrFrom4([4]byte{
-		byte(value >> 24), byte(value >> 16), byte(value >> 8), byte(value),
-	})
-}
-
-func collapseIPv4Ranges(ranges []ipv4Range) []string {
-	preservedSmallCIDRs := make(map[uint64][]ipv4Range)
+func collapseIPv4Ranges(ranges []ipv4Range) ([]string, error) {
+	blocks := make([]xnetip.Contiguous[xnetip.Network4], 0, len(ranges))
 	for _, rng := range ranges {
 		prefix, err := netip.ParsePrefix(rng.value)
-		if err == nil && prefix.Bits() > minCollapsedIPv4Prefix {
-			preservedSmallCIDRs[rng.start] = append(preservedSmallCIDRs[rng.start], rng)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(rng.value)
+			if addrErr != nil || !addr.Is4() {
+				return nil, fmt.Errorf("parse IPv4 entry %q for CIDR collapse", rng.value)
+			}
+			prefix = netip.PrefixFrom(addr, 32)
 		}
+		block, ok := xnetip.ContiguousFromPrefix4(prefix)
+		if !ok {
+			return nil, fmt.Errorf("convert IPv4 prefix %q for CIDR collapse", prefix)
+		}
+		blocks = append(blocks, block)
 	}
-	for start := range preservedSmallCIDRs {
-		sort.Slice(preservedSmallCIDRs[start], func(i, j int) bool {
-			return preservedSmallCIDRs[start][i].end > preservedSmallCIDRs[start][j].end
-		})
-	}
+	blocks = xnetip.AggregateContiguous(blocks)
+	sort.Slice(blocks, func(i, j int) bool {
+		return ipv4Uint(blocks[i].Prefix().Addr()) < ipv4Uint(blocks[j].Prefix().Addr())
+	})
 
-	merged := make([]ipv4Range, 0, len(ranges))
-	for _, rng := range ranges {
-		last := len(merged) - 1
-		if last < 0 || rng.start > merged[last].end+1 {
-			merged = append(merged, ipv4Range{start: rng.start, end: rng.end})
-			continue
-		}
-		if rng.end > merged[last].end {
-			merged[last].end = rng.end
+	output := make([]string, len(blocks))
+	for i, block := range blocks {
+		prefix := block.Prefix()
+		if prefix.Bits() == 32 {
+			output[i] = prefix.Addr().String()
+		} else {
+			output[i] = prefix.String()
 		}
 	}
-
-	var output []string
-	for _, rng := range merged {
-		for current := rng.start; current <= rng.end; {
-			prefix := 32
-			for candidate := 0; candidate <= minCollapsedIPv4Prefix; candidate++ {
-				blockSize := uint64(1) << uint(32-candidate)
-				if current%blockSize == 0 && blockSize <= rng.end-current+1 {
-					prefix = candidate
-					break
-				}
-			}
-			if prefix == 32 {
-				for _, existing := range preservedSmallCIDRs[current] {
-					if existing.end <= rng.end {
-						output = append(output, existing.value)
-						current = existing.end + 1
-						prefix = 0
-						break
-					}
-				}
-				if prefix == 0 {
-					continue
-				}
-			}
-			blockSize := uint64(1) << uint(32-prefix)
-			if prefix == 32 {
-				output = append(output, uintIPv4(current).String())
-			} else {
-				output = append(output, netip.PrefixFrom(uintIPv4(current), prefix).String())
-			}
-			current += blockSize
-		}
-	}
-	return output
+	return output, nil
 }

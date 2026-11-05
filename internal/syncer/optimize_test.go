@@ -48,7 +48,7 @@ func TestOptimizeIPv4Entries_CollapsesFull24ButNotPartial24(t *testing.T) {
 	}
 }
 
-func TestOptimizeIPv4Entries_OnlyCollapsesExactCoverageAndMinimumPrefix(t *testing.T) {
+func TestOptimizeIPv4Entries_OnlyCollapsesExactCoverage(t *testing.T) {
 	input := []string{"10.0.0.0/23", "10.0.2.0/25", "10.0.2.128", "10.0.2.130"}
 	got, stats, err := OptimizeIPv4Entries(input, true)
 	if err != nil {
@@ -59,6 +59,33 @@ func TestOptimizeIPv4Entries_OnlyCollapsesExactCoverageAndMinimumPrefix(t *testi
 		t.Fatalf("OptimizeIPv4Entries() = %v, want %v", got, want)
 	}
 	if stats.CIDRBlocks != 2 || stats.CoveredEntriesRemoved != 0 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+}
+
+func TestOptimizeIPv4Entries_CollapsesToSmallCIDRAndKeepsHostRoutes(t *testing.T) {
+	got, stats, err := OptimizeIPv4Entries([]string{"192.0.2.10", "192.0.2.11", "192.0.2.20"}, true)
+	if err != nil {
+		t.Fatalf("OptimizeIPv4Entries() error = %v", err)
+	}
+	want := []string{"192.0.2.10/31", "192.0.2.20"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("OptimizeIPv4Entries() = %v, want %v", got, want)
+	}
+	if stats.CIDRBlocks != 1 || stats.CIDRsCreated != 1 || stats.OutputEntries != 2 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+}
+
+func TestOptimizeIPv4Entries_CollapsesSingleton32ToHostAddress(t *testing.T) {
+	got, stats, err := OptimizeIPv4Entries([]string{"192.0.2.10/32"}, true)
+	if err != nil {
+		t.Fatalf("OptimizeIPv4Entries() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, []string{"192.0.2.10"}) {
+		t.Fatalf("OptimizeIPv4Entries() = %v, want bare host address", got)
+	}
+	if stats.CIDRBlocks != 0 || stats.CIDRsCreated != 0 {
 		t.Fatalf("unexpected stats: %+v", stats)
 	}
 }
