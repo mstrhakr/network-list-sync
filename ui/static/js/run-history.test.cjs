@@ -62,6 +62,19 @@ test('history escapes messages, target labels, status and diagnostics', () => {
     assert.match(html, /&lt;\/pre&gt;&lt;script&gt;/);
 });
 
+test('history shows exclusion input, affected and final entry counts', () => {
+    const h = harness();
+    h.context.logs = [sampleLog({stats: {
+        input_entries: 4, output_entries: 2, entries_saved: 2,
+        exclusion_input_entries: 1, included_entries_affected: 1, entries_after_exclusions: 2,
+    }})];
+    h.run('renderLogs(logs)');
+    const html = h.document.getElementById('logsContent').innerHTML;
+    assert.match(html, /Exclusion inputs<\/dt><dd>1<\/dd>/);
+    assert.match(html, /Included entries affected<\/dt><dd>1<\/dd>/);
+    assert.match(html, /Entries after exclusions<\/dt><dd>2<\/dd>/);
+});
+
 test('missing stats and actions remain readable; empty history shows guidance', () => {
     const h = harness();
     h.context.logs = [sampleLog({stats: null, details: '', targets: null})];

@@ -969,6 +969,9 @@ async function saveJob(event) {
         targets: targets,
         hostnames: document.getElementById('hostnames').value,
         included_list_ids: selectedSourceIDs('jobSourceLists'),
+        excluded_hostnames: document.getElementById('excludedHostnames').value,
+        excluded_list_ids: selectedSourceIDs('jobExcludedSourceLists'),
+        allow_empty_output: document.getElementById('allowEmptyOutput').checked,
         schedule: getScheduleValueFromForm(),
         observed_ip_ttl_hours: observedTTLHours,
         collapse_cidrs: document.getElementById('collapseCIDRs').checked,
@@ -1118,6 +1121,8 @@ async function previewResolve() {
     if (!isAdminUser) return;
     const hostnames = document.getElementById('hostnames').value;
     const includedListIDs = selectedSourceIDs('jobSourceLists');
+    const excludedHostnames = document.getElementById('excludedHostnames').value;
+    const excludedListIDs = selectedSourceIDs('jobExcludedSourceLists');
     const preview = document.getElementById('resolvePreview');
     if (!hostnames.trim() && !includedListIDs.length) {
         preview.classList.add('hidden');
@@ -1131,12 +1136,31 @@ async function previewResolve() {
         const resp = await fetch(API + '/resolve', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ hostnames: hostnames, included_list_ids: includedListIDs }),
+            body: JSON.stringify({
+                hostnames: hostnames,
+                included_list_ids: includedListIDs,
+                excluded_hostnames: excludedHostnames,
+                excluded_list_ids: excludedListIDs,
+            }),
         });
         const data = await resp.json();
         if (resp.ok) {
-            preview.innerHTML = '<strong>' + data.length + ' IPs resolved:</strong><br>' +
-                data.map(function(d) { return escapeHtml(d.ip) + ' &larr; ' + escapeHtml(d.hostname); }).join('<br>');
+            if (Array.isArray(data)) {
+                preview.innerHTML = '<strong>' + data.length + ' IPs resolved:</strong><br>' +
+                    data.map(function(d) { return escapeHtml(d.ip) + ' &larr; ' + escapeHtml(d.hostname); }).join('<br>');
+            } else {
+                const finalEntries = data.final || [];
+                const excludedEntries = data.excluded || [];
+                preview.innerHTML = '<strong>' + finalEntries.length + ' final entries</strong>' +
+                    (data.empty ? '<br><span class="text-error">Exclusions remove every entry; empty output requires explicit opt-in.</span>' : '') +
+                    '<br>Excluded source entries: ' + escapeHtml(String((data.stats || {}).exclusion_input_entries || 0)) +
+                    '; included entries affected: ' + escapeHtml(String((data.stats || {}).included_entries_affected || 0)) +
+                    '<br><details><summary>Excluded inputs (' + excludedEntries.length + ')</summary><div>' +
+                    excludedEntries.map(function(d) { return escapeHtml(d.ip) + ' &larr; ' + escapeHtml(d.hostname); }).join('<br>') +
+                    '</div></details><details><summary>Final entries (' + finalEntries.length + ')</summary><div>' +
+                    finalEntries.map(function(d) { return escapeHtml(d.ip) + ' &larr; ' + escapeHtml(d.hostname); }).join('<br>') +
+                    '</div></details>';
+            }
         } else {
             preview.innerHTML = '<span class="text-error">' + escapeHtml(data.error) + '</span>';
         }
@@ -1363,6 +1387,11 @@ function renderLogs(logs) {
             const badgeClass = log.status === 'success' ? 'badge-success' : log.status === 'running' ? 'badge-warning' : 'badge-error';
             const stats = log.stats || {};
             const count = function(value) { return Number(value || 0).toLocaleString(); };
+            const exclusionStats = Number(stats.exclusion_input_entries || 0) > 0
+                ? '<dt>Exclusion inputs</dt><dd>' + count(stats.exclusion_input_entries) + '</dd>' +
+                    '<dt>Included entries affected</dt><dd>' + count(stats.included_entries_affected) + '</dd>' +
+                    '<dt>Entries after exclusions</dt><dd>' + count(stats.entries_after_exclusions) + '</dd>'
+                : '';
             const optimization = log.stats
                 ? '<div class="logs-entry-flow"><span>Input <strong>' + count(stats.input_entries) + '</strong></span>' +
                     '<span aria-hidden="true">→</span><span>Final <strong>' + count(stats.output_entries) + '</strong></span></div>' +
@@ -1371,7 +1400,8 @@ function renderLogs(logs) {
                     '<dt>Duplicates removed</dt><dd>' + count(stats.duplicate_entries) + '</dd>' +
                     '<dt>Covered entries</dt><dd>' + count(stats.covered_entries_removed) + '</dd>' +
                     '<dt>New CIDRs</dt><dd>' + count(stats.cidrs_created) + '</dd>' +
-                    '<dt>Entries saved</dt><dd class="text-success">' + count(stats.entries_saved) + '</dd></dl>'
+                    '<dt>Entries saved</dt><dd class="text-success">' + count(stats.entries_saved) + '</dd>' +
+                    exclusionStats + '</dl>'
                 : '<span class="text-muted">No optimization stats</span>';
             const targetButtons = (Array.isArray(log.targets) ? log.targets : []).map(function(target) {
                 return '<div class="logs-target"><div class="logs-target-label">' + escapeHtml(target.label || 'Target') + '</div>' +
@@ -1428,6 +1458,8 @@ function showJobModal(job) {
             document.getElementById('jobId').value = job.id;
             document.getElementById('jobName').value = job.name;
             document.getElementById('hostnames').value = job.hostnames;
+            document.getElementById('excludedHostnames').value = job.excluded_hostnames || '';
+            document.getElementById('allowEmptyOutput').checked = !!job.allow_empty_output;
             document.getElementById('schedule').value = job.schedule || '';
             document.getElementById('schedulePreset').value = resolveSchedulePreset(job.schedule);
             document.getElementById('observedIpRetentionEnabled').checked = job.observed_ip_ttl_hours > 0;
@@ -1461,6 +1493,7 @@ function showJobModal(job) {
         }
 
         renderSourcePicker('jobSourceLists', job ? job.included_list_ids : []);
+        renderSourcePicker('jobExcludedSourceLists', job ? job.excluded_list_ids : []);
         onSchedulePresetChange();
         onObservedIpRetentionToggle();
         document.getElementById('resolvePreview').classList.add('hidden');

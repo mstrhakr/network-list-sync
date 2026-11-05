@@ -120,6 +120,29 @@ test('job preview resolves selected sources even without inline entries', async 
         return {ok: true, json: async () => [{ip: '10.0.0.0/8', hostname: '10.0.0.0/8'}]};
     };
     await h.run('previewResolve()');
-    assert.deepEqual(payload, {hostnames: '', included_list_ids: [7]});
+    assert.deepEqual(payload, {hostnames: '', included_list_ids: [7], excluded_hostnames: '', excluded_list_ids: []});
     assert.match(h.document.getElementById('resolvePreview').innerHTML, /10\.0\.0\.0\/8/);
+
+    h.document.getElementById('excludedHostnames').value = '10.0.0.64/26';
+    h.document.getElementById('jobExcludedSourceLists').inputs = [{value: '8', checked: true}];
+    h.context.fetch = async (_url, options) => {
+        payload = JSON.parse(options.body);
+        return {
+            ok: true,
+            json: async () => ({
+                resolved: [{ip: '10.0.0.0/24', hostname: 'include'}],
+                excluded: [{ip: '10.0.0.64/26', hostname: 'exclude'}],
+                final: [{ip: '10.0.0.0/26', hostname: 'include'}, {ip: '10.0.0.128/25', hostname: 'include'}],
+                stats: {exclusion_input_entries: 1, included_entries_affected: 1},
+                empty: false,
+            }),
+        };
+    };
+    await h.run('previewResolve()');
+    assert.deepEqual(payload, {
+        hostnames: '', included_list_ids: [7],
+        excluded_hostnames: '10.0.0.64/26', excluded_list_ids: [8],
+    });
+    assert.match(h.document.getElementById('resolvePreview').innerHTML, /2 final entries/);
+    assert.match(h.document.getElementById('resolvePreview').innerHTML, /10\.0\.0\.128\/25/);
 });

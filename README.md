@@ -171,8 +171,9 @@ Example:
 5. Choose primary endpoint and primary target list.
 6. Select **Include Reusable Sources** and/or add inline hostnames, IPv4, CIDR, or external URL list entries (one per line).
 7. Optionally add additional endpoint/list targets.
-8. Preview the combined inputs, then save and run the job.
-9. Review logs and target list state.
+8. Optionally add exclusion entries or reusable exclusion sources. Exclusions apply after retained DNS answers are merged; any exclusion resolution error stops the run before writes.
+9. Preview the final set, then save and run the job. Empty output is blocked unless **Allow exclusions to clear target lists** is enabled.
+10. Review logs and target list state.
 
 Example input:
 
@@ -198,6 +199,8 @@ Cycles are prevented. A missing source reference fails closed rather than updati
 
 Source changes apply on the next manual or scheduled job run, not as an immediate push. Existing retention may keep removed entries until the configured retention expires; disable retention for immediate removal on the next run.
 
+Jobs can define exclusions independently from reusable-source includes. Resolved exclusions are subtracted from the combined include set, including retained IPs. Exclusion sources must resolve completely; partial results fail closed. CIDR ranges are split exactly without enumerating individual addresses, with a bounded fragment count. An empty result requires explicit job-level opt-in.
+
 ## Operational Tips
 
 1. Validate jobs with manual runs before enabling schedule.
@@ -207,9 +210,9 @@ Source changes apply on the next manual or scheduled job run, not as an immediat
 
 ### List optimization and run history
 
-Each sync removes duplicate entries and entries already covered by another exact IP/CIDR range. Jobs can optionally collapse fully covered IPv4 ranges into CIDRs. Collapse preserves the exact address set and only creates `/24` or larger networks; the option is off by default. Existing smaller CIDRs are retained as provided.
+Each sync removes duplicate entries and entries already covered by another exact IP/CIDR range. Jobs can optionally collapse fully covered IPv4 ranges into the smallest exact CIDR set; the option is off by default. Single-host ranges remain IP entries.
 
-Run history reports input/unique counts, duplicates and covered entries removed, CIDRs created, and total entries saved. When a run updates a target, its history includes an on-demand view of the exact items sent to that target.
+Run history reports input/unique counts, duplicates and covered entries removed, exclusion counts, CIDRs created, and total entries saved. When a run updates a target, its history includes an on-demand view of the exact items sent to that target.
 
 ## API Endpoints
 

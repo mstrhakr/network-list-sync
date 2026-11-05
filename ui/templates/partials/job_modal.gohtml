@@ -44,6 +44,13 @@
                     <div id="resolvePreview" class="resolve-preview hidden"></div>
                 </div>
                 <div class="form-group">
+                    <label for="excludedHostnames">Exclude Hostnames / IPv4 / CIDR / External URL <small>(one per line, # for comments)</small></label>
+                    <textarea id="excludedHostnames" rows="4" placeholder="203.0.113.0/24&#10;blocked.example.com"></textarea>
+                    <label>Exclude Reusable Sources</label>
+                    <div id="jobExcludedSourceLists" class="source-picker"></div>
+                    <span class="hint">Exclusions apply after retained IPs are merged. Any exclusion resolution failure prevents writes.</span>
+                </div>
+                <div class="form-group">
                     <label>Additional Targets</label>
                     <div id="additionalTargetsRows"></div>
                     <button type="button" class="btn btn-small btn-secondary" onclick="addAdditionalTargetRow()" style="margin-top:0.4rem">+ Add Endpoint</button>
@@ -60,7 +67,17 @@
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
-                    <span class="hint">Always removes duplicate and fully covered entries. Optional CIDR collapse preserves the exact IP set and only creates /24 or larger networks.</span>
+                    <span class="hint">Always removes duplicate and fully covered entries. Optional CIDR collapse preserves the exact IP set; single hosts remain IP entries.</span>
+                </div>
+                <div class="form-group">
+                    <div class="toggle-field">
+                        <label class="toggle-title" for="allowEmptyOutput">Allow exclusions to clear target lists</label>
+                        <label class="toggle">
+                            <input type="checkbox" id="allowEmptyOutput">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <span class="hint">Off by default. When enabled, an empty resolved set may replace target lists.</span>
                 </div>
             </div>
             <div class="form-section">
